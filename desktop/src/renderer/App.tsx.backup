@@ -1,0 +1,3138 @@
+import React from 'react';
+import { useAppStore } from './store';
+import { TreeView } from './components/TreeView';
+import { Overlay, parseBounds as parseOverlayBounds } from './components/Overlay';
+import { generateLocators, LocatorSuggestion } from '../../../core/src/locator';
+
+const colors = {
+  primary: '#2563eb',
+  danger: '#ef4444',
+  success: '#22c55e',
+  surface: '#0b1221',
+  panel: '#0e1726',
+  border: '#1f2937',
+  cardBlue: '#eef3ff',
+  cardGreen: '#eaffef',
+  textMain: '#0f172a',
+  textSub: '#475569'
+};
+
+const selectionStyle = `
+*::selection {
+  background: #fbbf24;
+  color: #0b1221;
+}
+*::-moz-selection {
+  background: #fbbf24;
+  color: #0b1221;
+}
+`;
+
+const pressableStyle = {
+  transition: 'transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+  outline: 'none'
+} as const;
+
+const pressableHandlers = {
+  onMouseDown: (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(0.98)';
+    e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.24)';
+  },
+  onMouseUp: (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1)';
+    e.currentTarget.style.boxShadow = pressableStyle.boxShadow;
+  },
+  onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1)';
+    e.currentTarget.style.boxShadow = pressableStyle.boxShadow;
+  },
+  onBlur: (e: React.FocusEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1)';
+    e.currentTarget.style.boxShadow = pressableStyle.boxShadow;
+  },
+  onFocus: (e: React.FocusEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.35)';
+  }
+};
+
+const Welcome: React.FC = () => {
+  const { setAdbPath, scanAdb, state, setPhase } = useAppStore();
+  const [message, setMessage] = React.useState('');
+
+  const pickAdb = async () => {
+    if (window.groundview?.dialog?.openAdb) {
+      const res = await window.groundview.dialog.openAdb();
+      if (res?.ok && res.path) {
+        await setAdbPath(res.path);
+        setPhase('devices');
+        return;
+      }
+    }
+    const found = await scanAdb();
+    if (found[0]) {
+      await setAdbPath(found[0]);
+      setPhase('devices');
+    } else {
+      setMessage('ADB를 찾지 못했습니다. 다운로드 후 다시 선택하세요.');
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#f7f9fb',
+        color: '#0f172a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 16
+      }}
+    >
+      <div
+        style={{
+          width: 120,
+          height: 120,
+          borderRadius: 28,
+          background: 'linear-gradient(180deg,#1e3a8a,#2563eb)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <div style={{ fontSize: 48, color: '#e0ecff' }}>🔍</div>
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 800 }}>GroundView</div>
+      <button
+        onClick={pickAdb}
+        style={{
+          padding: '12px 24px',
+          borderRadius: 12,
+          background: colors.primary,
+          color: '#fff',
+          border: 'none',
+          fontSize: 16,
+          fontWeight: 700,
+          cursor: 'pointer',
+          ...pressableStyle
+        }}
+        {...pressableHandlers}
+      >
+        Select ADB
+      </button>
+      <div style={{ color: '#475569' }}>
+        You need Android Debug Bridge (ADB) to use this application.
+      </div>
+      <a
+        href="https://developer.android.com/studio/releases/platform-tools"
+        style={{ color: colors.primary, textDecoration: 'none', fontWeight: 700 }}
+        onClick={(e) => {
+          e.preventDefault();
+          if (window.groundview?.external?.open) {
+            window.groundview.external.open('https://developer.android.com/studio/releases/platform-tools');
+          } else {
+            window.open('https://developer.android.com/studio/releases/platform-tools', '_blank');
+          }
+        }}
+      >
+        Download here
+      </a>
+      {state.statusMessage && <div style={{ color: '#0ea5e9' }}>{state.statusMessage}</div>}
+      {message && <div style={{ color: colors.danger }}>{message}</div>}
+    </div>
+  );
+};
+
+const ConnectPanel: React.FC = () => {
+  const {
+    state,
+    setPlatform,
+    loadDevices,
+    selectDevice,
+    capture,
+    checkHealth,
+    setAdbPath,
+    scanAdb
+  } = useAppStore();
+  const [adbPathInput, setAdbPathInput] = React.useState('');
+  const [selectingAdb, setSelectingAdb] = React.useState(false);
+
+  return (
+    <div
+      style={{
+        background: '#0e1726',
+        borderRadius: 12,
+        padding: 12,
+        border: '1px solid #1f2937',
+        display: 'flex',
+        gap: 12,
+        alignItems: 'center',
+        flexWrap: 'wrap'
+      }}
+    >
+      <button
+        onClick={async () => {
+          try {
+            setSelectingAdb(true);
+            if (window.groundview?.dialog?.openAdb) {
+              const res = await window.groundview.dialog.openAdb();
+              if (res?.ok && res.path) {
+                setAdbPathInput(res.path);
+                await setAdbPath(res.path);
+                await checkHealth();
+                return;
+              }
+            }
+            const paths = (await scanAdb()) || [];
+            if (paths[0]) {
+              setAdbPathInput(paths[0]);
+              await setAdbPath(paths[0]);
+              await checkHealth();
+            }
+          } finally {
+            setSelectingAdb(false);
+          }
+        }}
+        style={{
+          padding: '12px 20px',
+          borderRadius: 12,
+          border: 'none',
+          background: selectingAdb ? '#94a3b8' : '#2563eb',
+          color: '#fff',
+          fontWeight: 800,
+          cursor: selectingAdb ? 'not-allowed' : 'pointer',
+          opacity: selectingAdb ? 0.85 : 1,
+          ...pressableStyle,
+          boxShadow: '0 6px 16px rgba(37,99,235,0.25)'
+        }}
+        disabled={selectingAdb}
+        {...pressableHandlers}
+      >
+        {selectingAdb ? 'Selecting…' : 'Select ADB'}
+      </button>
+    </div>
+  );
+};
+
+const Workspace: React.FC = () => {
+  const { state, setPreferredLang, setAppiumVersion, selectNode } = useAppStore();
+  
+  const buildEasyLocator = (node: any, platform: 'android' | 'ios') => {
+    try {
+      const safeNode = node || {};
+      if (platform === 'ios') {
+        const pred = safeNode.text
+          ? `label == "${safeNode.text}"`
+          : safeNode.contentDesc
+          ? `name == "${safeNode.contentDesc}"`
+          : 'label CONTAINS "__"';
+        const python = `el = driver.find_element(\n    by=AppiumBy.IOS_PREDICATE,\n    value='${pred}'\n)\nel.click()`;
+        const java = `var el = driver.findElement(\n    AppiumBy.iOSNsPredicateString("${pred.replace(/"/g, '\\"')}")\n);\nel.click();`;
+        return { python, java, note: 'iOS predicate 기반', label: pred };
+      }
+      let selector = '';
+      let note = '';
+      if (safeNode.resourceId) {
+        selector = `new UiSelector().resourceId("${safeNode.resourceId}")`;
+        note = 'resource-id 기반';
+      } else if (safeNode.contentDesc) {
+        selector = `new UiSelector().description("${safeNode.contentDesc}")`;
+        note = 'content-desc 기반';
+      } else if (safeNode.text) {
+        selector = `new UiSelector().textContains("${safeNode.text}")`;
+        note = '텍스트 기반';
+      } else {
+        const inst = typeof safeNode.index === 'number' ? safeNode.index : 0;
+        selector = `new UiSelector().className("${safeNode.cls || 'android.view.View'}").instance(${inst})`;
+        note = 'class + instance';
+      }
+      const python = `el = driver.find_element(\n    by=AppiumBy.ANDROID_UIAUTOMATOR,\n    value='${selector}'\n)\nel.click()`;
+      const java = `var el = driver.findElement(\n    AppiumBy.androidUIAutomator("${selector.replace(/"/g, '\\"')}")\n);\nel.click();`;
+      return { python, java, note, label: selector };
+    } catch (e) {
+      return { python: '# error', java: '// error', note: 'fallback', label: 'error' };
+    }
+  };
+  
+  const [codeModal, setCodeModal] = React.useState<{
+    title: string;
+    strategy: string;
+    code: string;
+    node?: any;
+    locators?: LocatorSuggestion[];
+    easy?: {
+      python: string;
+      java: string;
+      note: string;
+      label: string;
+    };
+  } | null>(null);
+  
+  const [codeLang, setCodeLang] = React.useState<'python' | 'java'>('python');
+  
+  const copyToClipboard = async (txt: string) => {
+    try {
+      await navigator.clipboard.writeText(txt);
+    } catch {
+      /* ignore */
+    }
+  };
+  
+  const showNodeModal = (node?: any) => {
+    if (!node) return;
+    const sample = {
+      cls: node.cls,
+      text: node.text,
+      id: node.resourceId,
+      desc: node.contentDesc,
+      bounds: node.bounds,
+      packageName: node.packageName,
+      index: node.index,
+      clickable: node.clickable,
+      enabled: node.enabled,
+      focusable: node.focusable,
+      checkable: node.checkable,
+      checked: node.checked,
+      selected: node.selected,
+      scrollable: node.scrollable,
+      longClickable: node.longClickable,
+      parentResourceId: node.parentResourceId,
+      parentClass: node.parentClass,
+      isListItem: node.isListItem,
+      uniqueText: node.uniqueText,
+      uniqueDesc: node.uniqueDesc
+    };
+    const platform = state.platform || 'android';
+    const locators = generateLocators([sample], platform);
+    const easy = buildEasyLocator(node, platform);
+    const picked = locators[0] || { strategy: 'id', value: 'unknown', score: 0, tier: 'fallback' };
+    setCodeModal({
+      title: node.text || node.resourceId || node.cls || 'element',
+      strategy: picked.strategy,
+      code: picked.codePython || '# not available',
+      node,
+      locators,
+      easy
+    });
+  };
+  
+  const easyBlock = codeModal ? buildEasyLocator(codeModal.node || {}, state.platform || 'android') : undefined;
+
+  const showCode = React.useCallback(
+    (nodeId?: string) => {
+      if (!nodeId || !state.tree) return;
+      const flat: typeof state.tree = [];
+      const walk = (n: any) => {
+        flat.push(n);
+        n.children?.forEach(walk);
+      };
+      state.tree.forEach(walk);
+      const node = flat.find((n) => n.id === nodeId);
+      if (node) showNodeModal(node);
+    },
+    [state.tree, state.platform]
+  );
+
+  return (
+    <div
+      style={{
+        background: '#0e1726',
+        borderRadius: 12,
+        padding: 12,
+        border: '1px solid #1f2937',
+        marginTop: 12
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 12
+        }}
+      >
+        <div
+          style={{
+            position: 'sticky',
+            top: 12,
+            alignSelf: 'flex-start'
+          }}
+        >
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Captured from: {state.selectedDevice?.id || '—'}</div>
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>Capture / Tree / Locators</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #1f2937',
+              background: '#111827',
+              color: '#e5e7eb',
+              cursor: 'pointer'
+            }}
+            onClick={() => window.location.reload()}
+          >
+            Back
+          </button>
+          <button
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #1f2937',
+              background: '#0ea5e9',
+              color: '#0b1727',
+              cursor: 'pointer'
+            }}
+          >
+            Capture
+          </button>
+          <button
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #1f2937',
+              background: '#8b5cf6',
+              color: '#0b1727',
+              cursor: 'pointer'
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '40% 32% 28%',
+      gap: 12
+    }}
+  >
+    <div style={{ background: '#0b1221', borderRadius: 10, padding: 10, border: '1px solid #1f2937', position: 'relative' }}>
+      <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>Screen Capture</span>
+        {state.capturing && (
+          <span style={{ fontSize: 12, color: '#facc15' }}>Capturing...</span>
+        )}
+      </div>
+          {state.lastCapture?.screenshotPath && state.tree ? (
+            <div style={{ position: 'relative' }}>
+              <Overlay
+                nodes={state.tree}
+                selectedId={state.selectedNodeId}
+                selectedBounds={state.selectedBounds}
+                onSelect={(n) => {
+                  selectNode(n.id, n.bounds);
+                  showNodeModal(n);
+                }}
+                onDoubleSelect={(n) => {
+                  selectNode(n.id, n.bounds);
+                  showNodeModal(n);
+                }}
+                screenshotPath={state.lastCapture?.screenshotPath}
+                disableHighlight={!!codeModal}
+              />
+              {state.capturing && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(0,0,0,0.35)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 8,
+                    color: '#facc15',
+                    fontWeight: 800
+                  }}
+                >
+                  Capturing...
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ color: '#9ca3af' }}>No capture yet.</div>
+          )}
+        </div>
+        <div
+          style={{
+            background: '#0b1221',
+            borderRadius: 10,
+            padding: 10,
+            border: '1px solid #1f2937',
+            minWidth: 0
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>UI Tree</div>
+          {state.tree && state.tree.length > 0 ? (
+            <TreeView
+              nodes={state.tree}
+              onSelect={(n) => selectNode(n.id, n.bounds)}
+              selectedBounds={state.selectedBounds}
+              onDoubleSelect={(n) => {
+                selectNode(n.id, n.bounds);
+                showNodeModal(n);
+              }}
+              selectedId={state.selectedNodeId}
+            />
+          ) : (
+            <div style={{ color: '#9ca3af' }}>No tree loaded.</div>
+          )}
+        </div>
+        <div
+          style={{
+            background: '#0b1221',
+            borderRadius: 10,
+            padding: 10,
+            border: '1px solid #1f2937',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>XML & Locators</div>
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>Nodes: {state.xmlSummary?.count ?? 0}</div>
+          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 320 }}>
+            {state.xmlSummary?.samples?.map((s, idx) => (
+              <div key={idx} style={{ marginBottom: 6, lineHeight: 1.4, color: '#e5e7eb' }}>
+                <strong>{s.cls || '(no class)'}</strong>
+                {s.text && <div style={{ fontSize: 12, color: '#9ca3af' }}>text: {s.text}</div>}
+                {s.id && <div style={{ fontSize: 12, color: '#9ca3af' }}>id: {s.id}</div>}
+              </div>
+            ))}
+            {(!state.xmlSummary || state.xmlSummary.samples.length === 0) && (
+              <div style={{ color: '#9ca3af' }}>No XML loaded.</div>
+            )}
+          </div>
+          <div
+            style={{
+              background: '#0e1726',
+              borderRadius: 8,
+              padding: 8,
+              border: '1px solid #1f2937',
+              maxHeight: 280,
+              overflowY: 'auto'
+            }}
+          >
+            {state.locators && state.locators.length > 0 ? (
+              state.locators.slice(0, 5).map((l, idx) => (
+                <div key={idx} style={{ marginBottom: 12, color: '#e5e7eb' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontWeight: 700, marginRight: 8, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {l.strategy}: {l.value}
+                    </div>
+                    <div
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        background:
+                          l.tier === 'recommended' ? 'rgba(34,197,94,0.15)' : l.tier === 'alternative' ? 'rgba(14,165,233,0.12)' : 'rgba(248,113,113,0.14)',
+                        color:
+                          l.tier === 'recommended' ? '#4ade80' : l.tier === 'alternative' ? '#38bdf8' : '#fca5a5',
+                        border: '1px solid #1f2937'
+                      }}
+                    >
+                      {l.tier}
+                    </div>
+                  </div>
+                  <div style={{ color: '#9ca3af' }}>score: {l.score}</div>
+                  {l.notes && l.notes.length > 0 && (
+                    <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 2 }}>{l.notes.join(' · ')}</div>
+                  )}
+                  {l.risks && l.risks.length > 0 && (
+                    <div style={{ color: '#f87171', fontSize: 12, marginTop: 2 }}>
+                      위험: {l.risks.join(' · ')}
+                    </div>
+                  )}
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      background: '#0b1221',
+                      padding: 8,
+                      borderRadius: 8,
+                      border: '1px solid #1f2937',
+                      marginTop: 6
+                    }}
+                  >
+                    {l.codePython}
+                  </pre>
+                </div>
+              ))
+            ) : (
+              <div style={{ color: '#9ca3af' }}>No locators yet.</div>
+            )}
+          </div>
+        </div>
+    </div>
+    {codeModal && (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.35)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}
+        onClick={() => setCodeModal(null)}
+      >
+        <div
+          style={{
+            background: '#0b1221',
+            borderRadius: 12,
+            padding: 16,
+            border: '1px solid #1f2937',
+            width: '520px',
+            maxWidth: '90%',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.45)'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontWeight: 800 }}>{codeModal.title}</div>
+              {codeModal.locators && codeModal.locators[0] && (
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                  best: {codeModal.locators[0].strategy} · {codeModal.locators[0].value}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setCodeModal(null)}
+              style={{
+                border: 'none',
+                background: '#111827',
+                color: '#e5e7eb',
+                borderRadius: 6,
+                padding: '6px 10px',
+                cursor: 'pointer',
+                ...pressableStyle
+              }}
+              {...pressableHandlers}
+            >
+              Close
+            </button>
+          </div>
+          {codeModal.node && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+                marginBottom: 12
+              }}
+            >
+              <div
+                style={{
+                  background: '#0e1726',
+                  borderRadius: 8,
+                  padding: 10,
+                  border: '1px solid #1f2937'
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>Basic</div>
+                <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.5 }}>
+                  <div>Package: {codeModal.node.packageName || '-'}</div>
+                  <div>Class: {codeModal.node.cls || '-'}</div>
+                  <div>Text: {codeModal.node.text || '-'}</div>
+                  <div>Content-desc: {codeModal.node.contentDesc || '-'}</div>
+                  <div>Resource-id: {codeModal.node.resourceId || '-'}</div>
+                  <div>Index: {codeModal.node.index ?? '-'}</div>
+                  <div>Bounds: {codeModal.node.bounds || '-'}</div>
+                </div>
+              </div>
+              <div
+                style={{
+                  background: '#0e1726',
+                  borderRadius: 8,
+                  padding: 10,
+                  border: '1px solid #1f2937'
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>Boolean</div>
+                <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.5 }}>
+                  <div>clickable: {String(codeModal.node.clickable)}</div>
+                  <div>enabled: {String(codeModal.node.enabled)}</div>
+                  <div>focusable: {String(codeModal.node.focusable)}</div>
+                  <div>checkable: {String(codeModal.node.checkable)}</div>
+                  <div>checked: {String(codeModal.node.checked)}</div>
+                  <div>selected: {String(codeModal.node.selected)}</div>
+                  <div>scrollable: {String(codeModal.node.scrollable)}</div>
+                  <div>longClickable: {String(codeModal.node.longClickable)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          {easyBlock && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+                marginBottom: 8
+              }}
+            >
+              <div
+                style={{
+                  background: '#0e1726',
+                  borderRadius: 8,
+                  padding: 10,
+                  border: '1px solid #1f2937'
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Easy (Python)</div>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>{easyBlock.note}</div>
+                <pre
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    color: '#e5e7eb',
+                    fontSize: 12,
+                    minHeight: 60,
+                    userSelect: 'text'
+                  }}
+                >
+                  {easyBlock.python}
+                </pre>
+                <button
+                  onClick={() => copyToClipboard(easyBlock.python)}
+                  style={{
+                    marginTop: 4,
+                    background: '#2563eb',
+                    border: 'none',
+                    borderRadius: 6,
+                    color: '#fff',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Copy
+                </button>
+              </div>
+              <div
+                style={{
+                  background: '#0e1726',
+                  borderRadius: 8,
+                  padding: 10,
+                  border: '1px solid #1f2937'
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Easy (Java)</div>
+                <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>{easyBlock.note}</div>
+                <pre
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    color: '#e5e7eb',
+                    fontSize: 12,
+                    minHeight: 60,
+                    userSelect: 'text'
+                  }}
+                >
+                  {easyBlock.java}
+                </pre>
+                <button
+                  onClick={() => copyToClipboard(easyBlock.java)}
+                  style={{
+                    marginTop: 4,
+                    background: '#2563eb',
+                    border: 'none',
+                    borderRadius: 6,
+                    color: '#fff',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {codeModal.locators && codeModal.locators.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={() => setCodeLang('python')}
+                style={{
+                  border: '1px solid #1f2937',
+                  background: codeLang === 'python' ? '#22c55e' : '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Python
+              </button>
+              <button
+                onClick={() => setCodeLang('java')}
+                style={{
+                  border: '1px solid #1f2937',
+                  background: codeLang === 'java' ? '#22c55e' : '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Java
+              </button>
+            </div>
+          )}
+          {codeModal.locators && codeModal.locators.length > 0 && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr',
+                gap: 8,
+                marginBottom: 8
+              }}
+            >
+              {codeModal.locators.slice(0, 5).map((loc, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 700 }}>
+                        {loc.strategy}: {loc.value}
+                      </div>
+                    <div
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        background:
+                          loc.tier === 'recommended'
+                            ? 'rgba(34,197,94,0.15)'
+                            : loc.tier === 'alternative'
+                            ? 'rgba(14,165,233,0.12)'
+                            : 'rgba(248,113,113,0.14)',
+                        color:
+                          loc.tier === 'recommended' ? '#4ade80' : loc.tier === 'alternative' ? '#38bdf8' : '#fca5a5',
+                        border: '1px solid #1f2937'
+                      }}
+                    >
+                      {loc.tier} · {loc.score}
+                    </div>
+                  </div>
+                  {loc.notes && loc.notes.length > 0 && (
+                    <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{loc.notes.join(' · ')}</div>
+                  )}
+                  {loc.risks && loc.risks.length > 0 && (
+                    <div style={{ color: '#f87171', fontSize: 12, marginTop: 4 }}>위험: {loc.risks.join(' · ')}</div>
+                  )}
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      color: '#e5e7eb',
+                      fontSize: 12,
+                      minHeight: 60,
+                      userSelect: 'text'
+                    }}
+                  >
+                    {codeLang === 'python' ? loc.codePython : loc.codeJava}
+                  </pre>
+                  <button
+                    onClick={() => copyToClipboard(codeLang === 'python' ? loc.codePython : loc.codeJava)}
+                    style={{
+                      marginTop: 4,
+                      background: '#2563eb',
+                      border: 'none',
+                      borderRadius: 6,
+                      color: '#fff',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      ...pressableStyle
+                    }}
+                    {...pressableHandlers}
+                  >
+                    Copy
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+            Double-click another element to update, or click outside to close.
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+);
+};
+
+const App: React.FC = () => <AppContent />;
+
+const DevicesPage: React.FC = () => {
+  const { state, loadDevices, selectDevice, capture, exportZip, loadDump } = useAppStore();
+  React.useEffect(() => {
+    // 페이지 진입 시 1회 자동 새로고침
+    if (state.uiPhase === 'devices') {
+      loadDevices().catch(() => {});
+    }
+  }, [state.uiPhase, loadDevices]);
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 4
+        }}
+      >
+        <div style={{ fontSize: 28, fontWeight: 800, color: colors.textMain }}>GroundView</div>
+        <img
+          src="file:///C:/GroundView/Gemini_AI%20Logo.png"
+          alt="Gemini AI Logo"
+          style={{ height: 60, objectFit: 'contain', marginLeft: 12 }}
+        />
+      </div>
+      <div style={{ marginBottom: 20, color: colors.textSub }}>ADB/WDA capture & locator generator</div>
+      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div
+          style={{
+            background: colors.cardBlue,
+            border: '1px solid #dbe7ff',
+            borderRadius: 14,
+            padding: 16
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: '#4ade80',
+                border: '1px solid #bbf7d0'
+              }}
+            />
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.textMain }}>ADB FOUND</div>
+          </div>
+          <div style={{ color: colors.textSub, marginBottom: 10 }}>Available Android Debug Bridge Information</div>
+          <div
+            style={{
+              background: 'white',
+              border: '1px solid #dce3f5',
+              borderRadius: 10,
+              padding: 12,
+              color: colors.textMain,
+              fontFamily: 'monospace'
+            }}
+          >
+            ${' '}
+            {state.health?.details
+              ? state.health.details.split('\n')[0]
+              : state.adbPath
+              ? 'Fetching ADB version...'
+              : 'Set ADB path to fetch version.'}
+            {state.adbPath && (
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>path: {state.adbPath}</div>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: colors.cardGreen,
+            border: '1px solid #c8f5d3',
+            borderRadius: 14,
+            padding: 16
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    background: '#22c55e'
+                  }}
+                />
+                <div style={{ fontSize: 20, fontWeight: 800, color: colors.textMain }}>Connected Devices</div>
+              </div>
+              <div style={{ color: colors.textSub, marginTop: 6 }}>{state.devices.length} device(s) found</div>
+            </div>
+            <button
+            onClick={loadDevices}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 10,
+              border: '1px solid #b7f0c2',
+              background: '#fff',
+              color: '#16a34a',
+              cursor: 'pointer',
+              fontWeight: 700,
+              ...pressableStyle
+            }}
+            {...pressableHandlers}
+          >
+            Refresh
+          </button>
+          </div>
+
+          <div
+            style={{
+              marginTop: 14,
+              background: '#f8fff9',
+              border: '1px dashed #c8f5d3',
+              borderRadius: 12,
+              padding: 16,
+              minHeight: 200,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#94a3b8',
+              fontWeight: 600,
+              textAlign: 'center'
+            }}
+          >
+            {state.devices.length === 0 ? (
+              <div>
+                <div style={{ fontSize: 32, marginBottom: 4 }}>📱</div>
+                No devices connected
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                  Connect via USB or enable ADB over WiFi.
+                </div>
+              </div>
+            ) : (
+              <div style={{ width: '100%', maxWidth: 640, textAlign: 'left', color: '#0f172a' }}>
+                <div style={{ marginBottom: 10, color: '#475569' }}>Select Device</div>
+                <select
+                  value={state.selectedDevice?.id || ''}
+                  onChange={(e) => selectDevice(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: 12,
+                    borderRadius: 10,
+                    border: '1px solid #c8f5d3',
+                    marginBottom: 12,
+                    fontSize: 14
+                  }}
+                >
+                  <option value="">Choose a device...</option>
+                  {state.devices.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name || d.id}
+                    </option>
+                  ))}
+               </select>
+               {!state.selectedDevice && (
+                 <div
+                   style={{
+                     background: '#f8dadd',
+                     border: '1px solid #f6c8cd',
+                     padding: 12,
+                     borderRadius: 10,
+                     color: '#b91c1c',
+                     marginBottom: 12
+                   }}
+                 >
+                   Select a device to capture.
+                 </div>
+               )}
+               {state.selectedDevice && (
+                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {state.capturing ? (
+                      <div
+                        style={{
+                          background: '#fee2e2',
+                          border: '1px solid #fecdd3',
+                          padding: 14,
+                          borderRadius: 10,
+                          color: '#b91c1c',
+                          textAlign: 'center',
+                          fontWeight: 800
+                        }}
+                      >
+                        ★ Capturing...
+                      </div>
+                    ) : (
+                    <button
+                      onClick={capture}
+                      style={{
+                        width: '100%',
+                        padding: '14px 12px',
+                        borderRadius: 10,
+                        border: 'none',
+                        background: '#ef4444',
+                        color: '#fff',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Capture Screen
+                    </button>
+                  )}
+                  <button
+                    onClick={loadDump}
+                    style={{
+                      width: '100%',
+                      padding: '14px 12px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: '#2563eb',
+                      color: '#fff',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      ...pressableStyle
+                    }}
+                    {...pressableHandlers}
+                  >
+                    Load ZIP File
+                  </button>
+                    <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
+                      Ready to capture from: {state.selectedDevice?.id || '-'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const AnalyzePage: React.FC = () => {
+  const { state, setPhase, capture, exportZip, selectNode } = useAppStore();
+  const [treeViewMode, setTreeViewMode] = React.useState<'tree' | 'list'>('list');
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [codeModal, setCodeModal] = React.useState<{
+    title: string;
+    node?: any;
+    locators?: LocatorSuggestion[];
+    easy?: {
+      python: string;
+      java: string;
+      note: string;
+      label: string;
+    };
+    textScripts?: {
+      label: string;
+      code: string;
+      version: '1' | '2';
+      flavor: 'UiSelector' | 'XPath';
+      lang: 'python' | 'java';
+    }[];
+  } | null>(null);
+  const [codeLang, setCodeLang] = React.useState<'python' | 'java'>('python');
+
+  const copyToClipboard = async (txt: string) => {
+    try {
+      await navigator.clipboard.writeText(txt);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const [ocrModal, setOcrModal] = React.useState<{
+    mode?: 'gemini';
+    rawText?: string;
+    source?: string;
+    error?: string;
+  } | null>(null);
+  const [ocrGeminiLoading, setOcrGeminiLoading] = React.useState(false);
+  const [geminiLocator, setGeminiLocator] = React.useState<{ loading: boolean; error?: string | null; data?: any | null }>({
+    loading: false,
+    error: null,
+    data: null
+  });
+  const flatNodes = React.useMemo(() => {
+    const list: any[] = [];
+    const walk = (n: any) => {
+      list.push(n);
+      n.children?.forEach(walk);
+    };
+    state.tree?.forEach(walk);
+    return list;
+  }, [state.tree]);
+
+  const filteredList = React.useMemo(() => flatNodes, [flatNodes]);
+
+  const listRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  const listWrapRef = React.useRef<HTMLDivElement | null>(null);
+  const parseBounds = React.useCallback((b?: string) => {
+    if (!b) return null;
+    const m = b.match(/\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]/);
+    if (!m) return null;
+    return { x1: Number(m[1]), y1: Number(m[2]), x2: Number(m[3]), y2: Number(m[4]) };
+  }, []);
+
+  React.useEffect(() => {
+    if (treeViewMode !== 'list') return;
+    const targetId =
+      state.selectedNodeId ||
+      (state.selectedBounds
+        ? Object.keys(listRefs.current).find((id) => {
+            const el = listRefs.current[id];
+            return el?.dataset?.bounds === state.selectedBounds;
+          })
+        : undefined);
+    if (!targetId) return;
+    const raf = requestAnimationFrame(() => {
+      const el = listRefs.current[targetId];
+      if (!el) return;
+      const wrap = listWrapRef.current;
+      if (wrap) {
+        const wrapRect = wrap.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const offsetTop = elRect.top - wrapRect.top + wrap.scrollTop;
+        const top = offsetTop - wrap.clientHeight / 2;
+        wrap.scrollTo({ top: top < 0 ? 0 : top, behavior: 'smooth' });
+      } else if (el.scrollIntoView) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [state.selectedNodeId, state.selectedBounds, treeViewMode, filteredList.length]);
+
+  const formatParagraphs = React.useCallback((text?: string) => {
+    if (!text) return ['(no text)'];
+    // 줄바꿈 우선, 없으면 마침표 기준으로 짧은 문단으로 분리
+    const byNewline = text.split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    const base = byNewline.length > 0 ? byNewline : text.split(/(?<=\.)\s+/).map((t) => t.trim()).filter(Boolean);
+    return base.slice(0, 3); // 너무 길면 3개 문단까지만 표시
+  }, []);
+
+  const buildTextScripts = (node: any) => {
+    const text = (node.text || '').trim();
+    if (!text) return [];
+    const safe = text.replace(/"/g, '\\"').replace(/'/g, "\\'");
+    const xpath = `//*[@text="${safe}"]`;
+    return [
+      {
+        label: 'Appium 1.x · UiSelector · Python',
+        code: `el = driver.find_element_by_android_uiautomator('new UiSelector().text("${safe}")')`,
+        version: '1' as const,
+        flavor: 'UiSelector' as const,
+        lang: 'python' as const
+      },
+      {
+        label: 'Appium 2.x · UiSelector · Python',
+        code: `el = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("${safe}")')`,
+        version: '2' as const,
+        flavor: 'UiSelector' as const,
+        lang: 'python' as const
+      },
+      {
+        label: 'Appium 1.x · XPath · Python',
+        code: `el = driver.find_element_by_xpath("${xpath}")`,
+        version: '1' as const,
+        flavor: 'XPath' as const,
+        lang: 'python' as const
+      },
+      {
+        label: 'Appium 2.x · XPath · Python',
+        code: `el = driver.find_element(AppiumBy.XPATH, "${xpath}")`,
+        version: '2' as const,
+        flavor: 'XPath' as const,
+        lang: 'python' as const
+      },
+      {
+        label: 'Appium 1.x · UiSelector · Java',
+        code: `WebElement el = driver.findElement(MobileBy.AndroidUIAutomator("new UiSelector().text(\\"${safe}\\")"));`,
+        version: '1' as const,
+        flavor: 'UiSelector' as const,
+        lang: 'java' as const
+      },
+      {
+        label: 'Appium 2.x · UiSelector · Java',
+        code: `WebElement el = driver.findElement(AppiumBy.androidUIAutomator("new UiSelector().text(\\"${safe}\\")"));`,
+        version: '2' as const,
+        flavor: 'UiSelector' as const,
+        lang: 'java' as const
+      },
+      {
+        label: 'Appium 1.x · XPath · Java',
+        code: `WebElement el = driver.findElement(By.xpath("${xpath.replace(/"/g, '\\"')}"));`,
+        version: '1' as const,
+        flavor: 'XPath' as const,
+        lang: 'java' as const
+      },
+      {
+        label: 'Appium 2.x · XPath · Java',
+        code: `WebElement el = driver.findElement(AppiumBy.xpath("${xpath.replace(/"/g, '\\"')}"));`,
+        version: '2' as const,
+        flavor: 'XPath' as const,
+        lang: 'java' as const
+      }
+    ];
+  };
+
+  const locatorHints = (node: any) => {
+    const hints: string[] = [];
+    if (!node.resourceId && !node.contentDesc) hints.push('id/desc 없음 → 앱에 resource-id 또는 content-desc 추가 권장');
+    if (!node.uniqueText && node.text) hints.push('텍스트가 형제와 중복됨 → text 기반 로케이터 취약');
+    if (!node.text && !node.contentDesc && !node.resourceId) hints.push('텍스트/desc/id 모두 없음 → bounds/index로만 접근 가능');
+    if (!node.parentResourceId && !node.parentClass) hints.push('부모 id/class 없음 → childSelector 범위 한정 어려움');
+    if (node.isListItem && !node.parentResourceId) hints.push('리스트 항목인데 부모 id 없음 → 리스트 컨테이너 id 추가 추천');
+    return hints;
+  };
+
+  const isDynamicText = (text?: string) => {
+    if (!text) return false;
+    const patterns = [
+      /^[0-9.,:]+$/,
+      /^[0-9]{1,2}[:시hH][0-9]{1,2}/,
+      /[%\d]+\s?(개|원|건|회|분|초|일)/,
+      /[0-9]{4}-[0-9]{2}-[0-9]{2}/
+    ];
+    return patterns.some((re) => re.test(text));
+  };
+
+  const friendlyRisk = (msg?: string) => {
+    if (!msg) return '';
+    const m = msg.toLowerCase();
+    if (m.includes('index')) return 'index 기반이라 화면이 조금만 바뀌어도 깨질 수 있어요. id/desc를 추가하거나 더 구체적인 조건을 권장합니다.';
+    if (m.includes('dynamic') || m.includes('text may change'))
+      return '텍스트가 자주 바뀌는 요소 같아요. textContains나 id/desc를 쓰면 더 안전합니다.';
+    if (m.includes('bounds')) return 'bounds만으로 찾으면 기기 해상도/배치에 따라 실패할 수 있어요. id/desc 사용을 권장합니다.';
+    return msg;
+  };
+
+  const friendlyHint = (msg?: string) => {
+    if (!msg) return '';
+    const m = msg.toLowerCase();
+    if (m.includes('resource-id') || m.includes('id/desc'))
+      return '앱에 resource-id 또는 content-desc를 넣으면 더 안정적으로 찾을 수 있습니다.';
+    if (m.includes('text')) return '텍스트 기반 로케이터는 문구가 바뀌면 실패할 수 있어요. 가능하면 id/desc를 함께 쓰세요.';
+    if (m.includes('parent') || m.includes('ancestor'))
+      return '부모/조상 요소에 id/desc가 있다면 childSelector로 범위를 좁히면 더 안전합니다.';
+    return msg;
+  };
+
+  const buildTestExample = (node: any, screen?: string, action?: string) => {
+    const screenLine = screen ? `# 화면: ${screen}\n` : '';
+    const actionName =
+      action || node?.contentDesc || node?.text || node?.resourceId || node?.cls || '선택한 요소';
+    const actionLine = actionName ? `# 동작: ${actionName}\n` : '';
+
+    const hasDesc = !!(node?.contentDesc);
+    const hasText = !!(node?.text);
+    const hasRes = !!(node?.resourceId);
+    const clsName = node?.cls || 'android.view.View';
+    const idx = typeof node?.index === 'number' ? `.instance(${node.index})` : '';
+
+    // Primary: desc > resource-id > class+instance
+    let primaryLocator = '';
+    if (hasDesc) {
+      primaryLocator = `(AppiumBy.ACCESSIBILITY_ID, "${(node.contentDesc || '').replace(/"/g, '\\"')}")`;
+    } else if (hasRes) {
+      primaryLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().resourceId(\\"${node.resourceId}\\")${idx}")`;
+    } else if (hasText) {
+      primaryLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\\"${(node.text || '').replace(/"/g, '\\"')}\\")${idx}")`;
+    } else {
+      primaryLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\\"${clsName}\\")${idx}")`;
+    }
+
+    // Plan B: desc -> UIA desc, text -> textContains, id -> same id, else class+instance
+    let planBLocator = '';
+    if (hasDesc) {
+      planBLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().description(\\"${(node.contentDesc || '').replace(/"/g, '\\"')}\\")${idx}")`;
+    } else if (hasText) {
+      planBLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\\"${(node.text || '').replace(/"/g, '\\"')}\\")${idx}")`;
+    } else if (hasRes) {
+      planBLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().resourceId(\\"${node.resourceId}\\")${idx}")`;
+    } else {
+      planBLocator = `(AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\\"${clsName}\\")${idx}")`;
+    }
+
+    const python = `${screenLine}${actionLine}from appium import webdriver
+from appium.webdriver.common.appiumby import AppiumBy
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+def run_test(driver, timeout: int = 10) -> bool:
+    """
+    선택한 요소를 클릭하는 Appium 2.x 예제 (Wait 포함)
+    """
+    # 기본 로케이터 (desc/id/text 중 우선순위)
+    locator = ${primaryLocator}
+    # Plan B: 필요 시 이 로케이터로 교체해 보세요.
+    plan_b_locator = ${planBLocator}
+
+    try:
+        el = WebDriverWait(driver, timeout).until(
+            EC.element_to_be_clickable(locator)
+        )
+        el.click()
+        return True
+    except (TimeoutException, NoSuchElementException):
+        try:
+            el = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable(plan_b_locator)
+            )
+            el.click()
+            return True
+        except Exception:
+            return False
+`;
+
+    const java = `${screenLine ? `// ${screenLine.trim().slice(2)}\n` : ''}${actionLine ? `// ${actionLine.trim().slice(2)}\n` : ''}import io.appium.java_client.AppiumBy;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import java.time.Duration;
+
+public boolean runTest(AppiumDriver driver, int timeoutSeconds) {
+    By locator = ${hasDesc
+      ? `AppiumBy.accessibilityId("${(node?.contentDesc || '').replace(/"/g, '\\"')}")`
+      : `AppiumBy.androidUIAutomator("new UiSelector().${node?.resourceId ? `resourceId(\\"${node.resourceId}\\")` : `className(\\"${node?.cls || 'android.view.View'}\\")`}${typeof node?.index === 'number' ? `.instance(${node.index})` : ''}")`};
+    By planB = ${planBLocator.startsWith('(AppiumBy.ANDROID_UIAUTOMATOR')
+      ? `AppiumBy.androidUIAutomator("new UiSelector().description(\\"${(node?.contentDesc || '').replace(/"/g, '\\"')}\\")")`
+      : `AppiumBy.accessibilityId("accessibility-id")`};
+
+    WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(timeoutSeconds));
+    try {
+      WebElement el = wait.until(ExpectedConditions.elementToBeClickable(locator));
+      el.click();
+      return true;
+    } catch (Exception first) {
+      try {
+        WebElement el = wait.until(ExpectedConditions.elementToBeClickable(planB));
+        el.click();
+        return true;
+      } catch (Exception second) {
+        return false;
+      }
+    }
+}
+`;
+    return { python, java };
+  };
+
+  const buildEasyLocator = (node: any, platform: 'android' | 'ios') => {
+    try {
+      const safeNode = node || {};
+      if (platform === 'ios') {
+        const pred = safeNode.text
+          ? `label == "${safeNode.text}"`
+          : safeNode.contentDesc
+          ? `name == "${safeNode.contentDesc}"`
+          : 'label CONTAINS "__"';
+        const python = `el = driver.find_element(\n    by=AppiumBy.IOS_PREDICATE,\n    value='${pred}'\n)\nel.click()`;
+        const java = `var el = driver.findElement(\n    AppiumBy.iOSNsPredicateString("${pred.replace(/"/g, '\\"')}")\n);\nel.click();`;
+        return { python, java, note: 'iOS predicate 기반', label: pred };
+      }
+      let selector = '';
+      let note = '';
+      if (safeNode.resourceId) {
+        selector = `new UiSelector().resourceId("${safeNode.resourceId}")`;
+        note = 'resource-id 기반';
+      } else if (safeNode.contentDesc) {
+        selector = `new UiSelector().description("${safeNode.contentDesc}")`;
+        note = 'content-desc 기반';
+      } else if (safeNode.text && !isDynamicText(safeNode.text)) {
+        selector = `new UiSelector().text("${safeNode.text}")`;
+        note = '텍스트 기반';
+      } else if (safeNode.text) {
+        selector = `new UiSelector().textContains("${safeNode.text}")`;
+        note = 'textContains (동적 텍스트 예상)';
+      } else {
+        const inst = typeof safeNode.index === 'number' && safeNode.index >= 0 ? safeNode.index : 0;
+        selector = `new UiSelector().className("${safeNode.cls || 'android.view.View'}").instance(${inst})`;
+        note = 'class + instance (id/desc/text 없음)';
+      }
+      const python = `el = driver.find_element(\n    by=AppiumBy.ANDROID_UIAUTOMATOR,\n    value='${selector}'\n)\nel.click()`;
+      const java = `var el = driver.findElement(\n    AppiumBy.androidUIAutomator("${selector.replace(/"/g, '\\"')}")\n);\nel.click();`;
+      return { python, java, note, label: selector };
+    } catch (e) {
+      const selector = 'new UiSelector().textContains("...")';
+      const python = `el = driver.find_element(\n    by=AppiumBy.ANDROID_UIAUTOMATOR,\n    value='${selector}'\n)\nel.click()`;
+      const java = `var el = driver.findElement(\n    AppiumBy.androidUIAutomator("${selector}")\n);\nel.click();`;
+      return { python, java, note: 'fallback', label: selector };
+    }
+  };
+
+  const copyToClipboard = async (txt: string) => {
+    try {
+      await navigator.clipboard.writeText(txt);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const showNodeModal = (node?: any) => {
+    if (!node) return;
+    const sample = {
+      cls: node.cls,
+      text: node.text,
+      id: node.resourceId,
+      desc: node.contentDesc,
+      bounds: node.bounds,
+      packageName: node.packageName,
+      index: node.index,
+      clickable: node.clickable,
+      enabled: node.enabled,
+      focusable: node.focusable,
+      checkable: node.checkable,
+      checked: node.checked,
+      selected: node.selected,
+      scrollable: node.scrollable,
+      longClickable: node.longClickable,
+      parentResourceId: node.parentResourceId,
+      parentClass: node.parentClass,
+      isListItem:
+        /RecyclerView|ListView|ScrollView/i.test(node?.parentClass || '') ||
+        /recycler|list|collection/i.test(node?.parentResourceId || ''),
+      uniqueText: node.uniqueText,
+      uniqueDesc: node.uniqueDesc
+    };
+    const platform = state.platform || 'android';
+    const locators = generateLocators([sample], platform);
+    const easy = buildEasyLocator(node, platform);
+    setCodeModal({
+      title: node.text || node.resourceId || node.cls || 'element',
+      node,
+      locators,
+      easy,
+      textScripts: buildTextScripts(node)
+    });
+    setGeminiLocator({ loading: true, error: null, data: null });
+    if (!window.groundview?.locator?.gemini) {
+      setGeminiLocator({ loading: false, error: 'Gemini 제안 브리지가 없습니다.', data: null });
+    } else {
+      window.groundview.locator
+        .gemini({
+          node,
+          screenshot: state.lastCapture?.screenshotPath,
+          bounds: state.selectedBounds
+        })
+        .then((res) => {
+          if (res?.ok && res.suggestion) {
+            setGeminiLocator({ loading: false, error: null, data: res.suggestion });
+          } else {
+            setGeminiLocator({ loading: false, error: res?.error || 'Gemini 제안 실패', data: null });
+          }
+        })
+        .catch((e: any) => setGeminiLocator({ loading: false, error: String(e), data: null }));
+    }
+  };
+
+  const easyBlock = codeModal ? buildEasyLocator(codeModal.node || {}, state.platform || 'android') : undefined;
+
+  const runGeminiOcr = async () => {
+    if (!state.lastCapture?.screenshotPath) {
+      setOcrModal({ error: '스크린샷이 없습니다. 캡처 후 다시 시도하세요.' });
+      return;
+    }
+    const selBounds = parseBounds(state.selectedBounds);
+    setOcrGeminiLoading(true);
+    try {
+      // Gemini Vision API 호출 로직 (브리지가 구현되어 있어야 함)
+      const txt = 'Gemini OCR 결과가 여기 표시됩니다';
+      setOcrModal({
+        mode: 'gemini',
+        rawText: txt,
+        source: 'gemini-vision'
+      });
+    } catch (e) {
+      setOcrModal({ error: String(e) });
+    } finally {
+      setOcrGeminiLoading(false);
+    }
+  };
+
+  const easyBlock = codeModal ? buildEasyLocator(codeModal.node || {}, state.platform || 'android') : undefined;
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <button
+            onClick={() => setPhase('devices')}
+            style={{
+              background: '#0f172a',
+              color: '#e5e7eb',
+              padding: '10px 14px',
+              border: 'none',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontWeight: 700,
+              ...pressableStyle
+            }}
+            {...pressableHandlers}
+          >
+            ← Back to Devices
+          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={capture}
+            style={{
+              background: state.capturing ? '#9ca3af' : '#0ea5e9',
+              color: state.capturing ? '#1f2937' : '#0b1221',
+              padding: '10px 14px',
+              border: 'none',
+              borderRadius: 10,
+              cursor: state.capturing ? 'wait' : 'pointer',
+              fontWeight: 700,
+              opacity: state.capturing ? 0.8 : 1,
+              ...pressableStyle
+            }}
+            disabled={state.capturing}
+            {...pressableHandlers}
+          >
+            {state.capturing ? '⏳ Capturing...' : 'Capture'}
+          </button>
+          <button
+            onClick={exportZip}
+            style={{
+              background: state.saving ? '#9ca3af' : '#8b5cf6',
+              color: '#fff',
+              padding: '10px 14px',
+              border: 'none',
+              borderRadius: 10,
+              cursor: state.saving ? 'wait' : 'pointer',
+              fontWeight: 700,
+              opacity: state.saving ? 0.85 : 1,
+              ...pressableStyle
+            }}
+            disabled={!state.lastCapture || state.saving}
+            {...pressableHandlers}
+          >
+            {state.saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={runGeminiOcr}
+            style={{
+              background: ocrGeminiLoading ? '#9ca3af' : '#10b981',
+              color: '#0b1721',
+              padding: '10px 14px',
+              border: 'none',
+              borderRadius: 10,
+              cursor: ocrGeminiLoading ? 'wait' : 'pointer',
+              fontWeight: 700,
+              opacity: ocrGeminiLoading ? 0.85 : 1,
+              ...pressableStyle
+            }}
+            disabled={ocrGeminiLoading}
+            title="Gemini Vision OCR (LLM)"
+            {...pressableHandlers}
+          >
+            {ocrGeminiLoading ? 'Gemini…' : 'Gemini OCR'}
+          </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            style={{
+              background: '#f59e0b',
+              color: '#0b1221',
+              padding: '10px 14px',
+              border: 'none',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontWeight: 700,
+              ...pressableStyle
+            }}
+            title="Gemini API Key 설정"
+            {...pressableHandlers}
+          >
+            ⚙️ Settings
+          </button>
+        </div>
+      </div>
+      <div style={{ color: '#9ca3af', marginBottom: 12 }}>
+        Captured from: {state.selectedDevice?.id || state.metaDeviceId || '-'}
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '50% 50%',
+          gap: 16,
+          background: '#0e1726',
+          borderRadius: 12,
+          padding: 12,
+          color: '#e5e7eb'
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700 }}>Screen Capture</div>
+          </div>
+          {state.lastCapture?.screenshotPath && state.tree ? (
+            <Overlay
+              nodes={state.tree}
+              selectedId={state.selectedNodeId}
+              onSelect={(n) => selectNode(n.id, n.bounds)}
+              onDoubleSelect={(n) => {
+                selectNode(n.id, n.bounds);
+                showNodeModal(n);
+              }}
+              screenshotPath={state.lastCapture?.screenshotPath}
+              disableHighlight={!!codeModal}
+            />
+          ) : (
+            <div style={{ color: '#9ca3af' }}>No capture available.</div>
+          )}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{ fontWeight: 700 }}>UI Hierarchy Tree</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => setTreeViewMode('tree')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #1f2937',
+                  background: treeViewMode === 'tree' ? '#22c55e' : '#111827',
+                  color: '#e5e7eb',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Tree
+              </button>
+              <button
+                onClick={() => setTreeViewMode('list')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #1f2937',
+                  background: treeViewMode === 'list' ? '#22c55e' : '#111827',
+                  color: '#e5e7eb',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                List
+              </button>
+            </div>
+          </div>
+          {treeViewMode === 'tree' ? (
+            state.tree && state.tree.length > 0 ? (
+              <TreeView
+                nodes={state.tree}
+                onSelect={(n) => selectNode(n.id, n.bounds)}
+                onDoubleSelect={(n) => {
+                  selectNode(n.id, n.bounds);
+                  showNodeModal(n);
+                }}
+                selectedId={state.selectedNodeId}
+                selectedBounds={state.selectedBounds}
+              />
+            ) : (
+              <div style={{ color: '#9ca3af' }}>No tree loaded.</div>
+            )
+          ) : (
+            <div
+              ref={listWrapRef}
+              style={{
+                maxHeight: 520,
+                overflowY: 'auto',
+                background: '#0b1221',
+                borderRadius: 8,
+                padding: 8,
+                border: '1px solid #1f2937',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6
+              }}
+            >
+              {filteredList.length === 0 && <div style={{ color: '#9ca3af' }}>No tree data.</div>}
+              {filteredList.map((n) => {
+                const label = n.resourceId || n.contentDesc || n.text || n.cls || '(node)';
+                const isSel = state.selectedNodeId === n.id || (!state.selectedNodeId && !!state.selectedBounds && state.selectedBounds === n.bounds);
+                const paragraphs = formatParagraphs(n.text || n.contentDesc);
+                return (
+                  <div
+                    key={n.id}
+                    ref={(el) => {
+                      if (el) {
+                        listRefs.current[n.id] = el;
+                      } else {
+                        delete listRefs.current[n.id];
+                      }
+                    }}
+                    data-bounds={n.bounds || ''}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      selectNode(n.id, n.bounds);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      selectNode(n.id, n.bounds);
+                      showNodeModal(n);
+                    }}
+                    style={{
+                      padding: 8,
+                      borderRadius: 8,
+                      border: '1px solid #1f2937',
+                      background: isSel ? '#4338ca' : '#0e1726',
+                      color: '#e5e7eb',
+                      cursor: 'pointer'
+                    }}
+                    title={n.bounds || ''}
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+                      {n.resourceId && (
+                        <span style={{ background: '#0f172a', color: '#38bdf8', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          id: {n.resourceId}
+                        </span>
+                      )}
+                      {n.contentDesc && (
+                        <span style={{ background: '#14532d', color: '#4ade80', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          desc: {n.contentDesc}
+                        </span>
+                      )}
+                      {n.text && (
+                        <span style={{ background: '#78350f', color: '#fbbf24', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          text: {n.text}
+                        </span>
+                      )}
+                      {n.clickable && (
+                        <span style={{ background: '#0f172a', color: '#facc15', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          clickable
+                        </span>
+                      )}
+                      {n.focusable && (
+                        <span style={{ background: '#0f172a', color: '#a5b4fc', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          focusable
+                        </span>
+                      )}
+                      {n.scrollable && (
+                        <span style={{ background: '#0f172a', color: '#f472b6', padding: '2px 6px', borderRadius: 6, fontSize: 11 }}>
+                          scrollable
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>{label}</div>
+                    <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 2, lineHeight: 1.4 }}>
+                      class: {n.cls || '-'} • id: {n.resourceId || '-'} • desc: {n.contentDesc || '-'}
+                    </div>
+                    <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {paragraphs.map((p: string, idx: number) => (
+                        <div key={idx} style={{ marginBottom: 4 }}>
+                          {p}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 4 }}>bounds: {n.bounds || '-'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {codeModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2050
+          }}
+          onClick={() => setCodeModal(null)}
+        >
+          <div
+            style={{
+              background: '#0b1221',
+              borderRadius: 12,
+              padding: 16,
+              border: '1px solid #1f2937',
+              width: '820px',
+              maxWidth: '94%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.55)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>{codeModal.title}</div>
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                  text: {codeModal.node?.text || '(none)'} · id: {codeModal.node?.resourceId || '(none)'}
+                </div>
+              </div>
+              <button
+                onClick={() => setCodeModal(null)}
+                style={{
+                  border: 'none',
+                  background: '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Close
+              </button>
+            </div>
+
+            {codeModal.node && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                  marginBottom: 12
+                }}
+              >
+                <div
+                  style={{
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Basic</div>
+                  <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.5, userSelect: 'text' }}>
+                    <div>Package: {codeModal.node.packageName || '-'}</div>
+                    <div>Class: {codeModal.node.cls || '-'}</div>
+                    <div>Text: {codeModal.node.text || '-'}</div>
+                    <div>Content-desc: {codeModal.node.contentDesc || '-'}</div>
+                    <div>Resource-id: {codeModal.node.resourceId || '-'}</div>
+                    <div>Index: {codeModal.node.index ?? '-'}</div>
+                    <div>Bounds: {codeModal.node.bounds || '-'}</div>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Flags</div>
+                  <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.5, userSelect: 'text' }}>
+                    <div>clickable: {String(codeModal.node.clickable)}</div>
+                    <div>enabled: {String(codeModal.node.enabled)}</div>
+                    <div>focusable: {String(codeModal.node.focusable)}</div>
+                    <div>checkable: {String(codeModal.node.checkable)}</div>
+                    <div>checked: {String(codeModal.node.checked)}</div>
+                    <div>selected: {String(codeModal.node.selected)}</div>
+                    <div>scrollable: {String(codeModal.node.scrollable)}</div>
+                    <div>longClickable: {String(codeModal.node.longClickable)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {easyBlock && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 8
+                }}
+              >
+                <div
+                  style={{
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Easy (Python)</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
+                    선택한 요소만 바로 찾고 클릭하는 기본 코드입니다. (가능하면 id/desc를 우선 사용)
+                    <br />
+                    {easyBlock.note}
+                  </div>
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      color: '#e5e7eb',
+                      fontSize: 12,
+                      minHeight: 60,
+                      userSelect: 'text'
+                    }}
+                  >
+                    {easyBlock.python}
+                  </pre>
+                  <button
+                    onClick={() => copyToClipboard(easyBlock.python)}
+                    style={{
+                      marginTop: 4,
+                      background: '#2563eb',
+                      border: 'none',
+                      borderRadius: 6,
+                      color: '#fff',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      ...pressableStyle
+                    }}
+                    {...pressableHandlers}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div
+                  style={{
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>Easy (Java)</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
+                    선택한 요소만 바로 찾고 클릭하는 기본 코드입니다. (가능하면 id/desc를 우선 사용)
+                    <br />
+                    {easyBlock.note}
+                  </div>
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      color: '#e5e7eb',
+                      fontSize: 12,
+                      minHeight: 60,
+                      userSelect: 'text'
+                    }}
+                  >
+                    {easyBlock.java}
+                  </pre>
+                  <button
+                    onClick={() => copyToClipboard(easyBlock.java)}
+                    style={{
+                      marginTop: 4,
+                      background: '#2563eb',
+                      border: 'none',
+                      borderRadius: 6,
+                      color: '#fff',
+                      padding: '4px 8px',
+                      cursor: 'pointer',
+                      ...pressableStyle
+                    }}
+                    {...pressableHandlers}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div
+              style={{
+                background: '#0e1726',
+                borderRadius: 8,
+                padding: 10,
+                border: '1px solid #1f2937',
+                marginBottom: 10
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>Gemini 제안 (LLM)</div>
+              <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                화면과 선택한 요소를 보고 AI가 추천한 안정적인 코드입니다. 기다리면 자동으로 채워집니다.
+              </div>
+              {geminiLocator.loading && <div style={{ color: '#9ca3af' }}>Gemini 제안을 불러오는 중입니다...</div>}
+              {!geminiLocator.loading && geminiLocator.error && (
+                <div style={{ color: '#f87171' }}>오류: {geminiLocator.error}</div>
+              )}
+              {!geminiLocator.loading && !geminiLocator.error && geminiLocator.data && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 8
+                  }}
+                >
+                  <div
+                    style={{
+                      background: '#0b1221',
+                      borderRadius: 6,
+                      padding: 8,
+                      border: '1px solid #1f2937'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Python (Wait 포함)</div>
+                    <pre
+                      style={{
+                        whiteSpace: 'pre-wrap',
+                        color: '#e5e7eb',
+                        fontSize: 12,
+                        minHeight: 60,
+                        userSelect: 'text'
+                      }}
+                    >
+                      {geminiLocator.data?.python || '(empty)'}
+                    </pre>
+                    <button
+                      onClick={() => copyToClipboard(geminiLocator.data?.python || '')}
+                      style={{
+                        marginTop: 4,
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div
+                    style={{
+                      background: '#0b1221',
+                      borderRadius: 6,
+                      padding: 8,
+                      border: '1px solid #1f2937'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Java (Wait 포함)</div>
+                    <pre
+                      style={{
+                        whiteSpace: 'pre-wrap',
+                        color: '#e5e7eb',
+                        fontSize: 12,
+                        minHeight: 60,
+                        userSelect: 'text'
+                      }}
+                    >
+                      {geminiLocator.data?.java || '(empty)'}
+                    </pre>
+                    <button
+                      onClick={() => copyToClipboard(geminiLocator.data?.java || '')}
+                      style={{
+                        marginTop: 4,
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div style={{ gridColumn: '1 / span 2', color: '#9ca3af', fontSize: 12 }}>
+                    {geminiLocator.data?.note && <div>요약: {geminiLocator.data.note}</div>}
+                    {geminiLocator.data?.hints && geminiLocator.data.hints.length > 0 && (
+                      <div>힌트: {geminiLocator.data.hints.join(' · ')}</div>
+                    )}
+                    {geminiLocator.data?.risks && geminiLocator.data.risks.length > 0 && (
+                      <div style={{ color: '#f87171' }}>위험: {geminiLocator.data.risks.join(' · ')}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {easyBlock && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    background: '#0e1726',
+                    borderRadius: 8,
+                    padding: 10,
+                    border: '1px solid #1f2937'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>테스트 예제 (Appium 2.x · Wait 포함)</div>
+                  <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>
+                    바로 붙여 넣어 실행할 수 있는 간단 예제입니다. driver 초기화만 추가하면 됩니다.
+                  </div>
+                  {(() => {
+                    const examples = buildTestExample(
+                      codeModal.node || {},
+                      state.lastCapture?.metadata?.screenName,
+                      codeModal.node?.text || codeModal.node?.contentDesc || '선택한 요소 동작'
+                    );
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div
+                          style={{
+                            background: '#0b1221',
+                            borderRadius: 6,
+                            padding: 8,
+                            border: '1px solid #1f2937'
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: 4 }}>Python</div>
+                          <pre
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              color: '#e5e7eb',
+                              fontSize: 12,
+                              minHeight: 60,
+                              userSelect: 'text'
+                            }}
+                          >
+                            {examples.python}
+                          </pre>
+                          <button
+                            onClick={() => copyToClipboard(examples.python)}
+                            style={{
+                              marginTop: 4,
+                              background: '#2563eb',
+                              border: 'none',
+                              borderRadius: 6,
+                              color: '#fff',
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              ...pressableStyle
+                            }}
+                            {...pressableHandlers}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            background: '#0b1221',
+                            borderRadius: 6,
+                            padding: 8,
+                            border: '1px solid #1f2937'
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: 4 }}>Java</div>
+                          <pre
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              color: '#e5e7eb',
+                              fontSize: 12,
+                              minHeight: 60,
+                              userSelect: 'text'
+                            }}
+                          >
+                            {examples.java}
+                          </pre>
+                          <button
+                            onClick={() => copyToClipboard(examples.java)}
+                            style={{
+                              marginTop: 4,
+                              background: '#2563eb',
+                              border: 'none',
+                              borderRadius: 6,
+                              color: '#fff',
+                              padding: '4px 8px',
+                              cursor: 'pointer',
+                              ...pressableStyle
+                            }}
+                            {...pressableHandlers}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6 }}>
+                    이 코드를 테스트 메서드에 바로 붙여 넣고, 함수명/타임아웃만 조정하세요. (Appium 2.x 기준)
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {codeModal.locators && codeModal.locators.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  onClick={() => setCodeLang('python')}
+                  style={{
+                    border: '1px solid #1f2937',
+                    background: codeLang === 'python' ? '#22c55e' : '#111827',
+                    color: '#e5e7eb',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Python
+                </button>
+                <button
+                  onClick={() => setCodeLang('java')}
+                  style={{
+                    border: '1px solid #1f2937',
+                    background: codeLang === 'java' ? '#22c55e' : '#111827',
+                    color: '#e5e7eb',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Java
+                </button>
+              </div>
+            )}
+
+            {codeModal.locators && codeModal.locators.length > 0 && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: 8,
+                  marginBottom: 8
+                }}
+              >
+                {codeModal.locators.slice(0, 5).map((loc, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      background: '#0e1726',
+                      borderRadius: 8,
+                      padding: 10,
+                      border: '1px solid #1f2937'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      {loc.tier === 'recommended'
+                        ? 'Recommended'
+                        : loc.tier === 'alternative'
+                        ? 'Alternative'
+                        : 'Fallback'}{' '}
+                      ({codeLang.toUpperCase()}) · {loc.strategy}
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 2 }}>{loc.value}</div>
+                    <div
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        display: 'inline-flex',
+                        gap: 6,
+                        alignItems: 'center',
+                        background:
+                          loc.tier === 'recommended'
+                            ? 'rgba(34,197,94,0.15)'
+                            : loc.tier === 'alternative'
+                            ? 'rgba(14,165,233,0.12)'
+                            : 'rgba(248,113,113,0.14)',
+                        color:
+                          loc.tier === 'recommended' ? '#4ade80' : loc.tier === 'alternative' ? '#38bdf8' : '#fca5a5',
+                        border: '1px solid #1f2937',
+                        marginBottom: 4
+                      }}
+                    >
+                      score {loc.score}
+                    </div>
+                    {loc.notes && loc.notes.length > 0 && (
+                      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 4 }}>
+                        {loc.notes.map((n: string, i: number) => (
+                          <div key={`note-${i}`}>💡 {friendlyHint(n)}</div>
+                        ))}
+                      </div>
+                    )}
+                    {loc.risks && loc.risks.length > 0 && (
+                      <div style={{ color: '#f87171', fontSize: 12, marginBottom: 4 }}>
+                        위험:{' '}
+                        {loc.risks.map((r: string, i: number) => (
+                          <div key={`risk-${i}`}>⚠️ {friendlyRisk(r)}</div>
+                        ))}
+                      </div>
+                    )}
+                    {idx === 0 && (
+                      <div style={{ color: '#a3e635', fontSize: 12, marginBottom: 4 }}>
+                        {(locatorHints(codeModal.node || {}) || []).map((h: string, i: number) => (
+                          <div key={`hint-${i}`}>💬 {friendlyHint(h)}</div>
+                        )) || '정보를 추가하면 더 안전한 로케이터를 만들 수 있습니다.'}
+                      </div>
+                    )}
+                    <pre
+                      style={{
+                        whiteSpace: 'pre-wrap',
+                        color: '#e5e7eb',
+                        fontSize: 12,
+                        minHeight: 60,
+                        userSelect: 'text'
+                      }}
+                    >
+                      {codeLang === 'python' ? loc.codePython : loc.codeJava}
+                    </pre>
+                    <button
+                      onClick={() => copyToClipboard(codeLang === 'python' ? loc.codePython : loc.codeJava)}
+                      style={{
+                        marginTop: 4,
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 4, fontSize: 12, color: '#9ca3af' }}>
+              더블클릭으로 다른 요소를 선택하면 팝업이 갱신됩니다.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ocrModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2100
+          }}
+          onClick={() => setOcrModal(null)}
+        >
+          <div
+            style={{
+              background: '#0b1221',
+              borderRadius: 12,
+              padding: 16,
+              border: '1px solid #1f2937',
+              width: '780px',
+              maxWidth: '94%',
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.55)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 800, color: '#e5e7eb' }}>Gemini OCR 결과</div>
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                  {ocrModal.error ? '에러' : '1개 결과 · mode: gemini'}{' '}
+                  {state.selectedBounds ? `· selected ${state.selectedBounds}` : ''}
+                  {ocrModal.source ? ` · ${ocrModal.source}` : ''}
+                </div>
+              </div>
+            <button
+              onClick={() => setOcrModal(null)}
+                style={{
+                  border: 'none',
+                  background: '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Close
+              </button>
+            </div>
+            {ocrModal.error && (
+              <div style={{ color: '#f87171', marginBottom: 8, userSelect: 'text' }}>
+                오류: {ocrModal.error}
+              </div>
+            )}
+            {!ocrModal.error && ocrModal.mode === 'gemini' && !ocrModal.rawText && (
+              <div style={{ color: '#9ca3af' }}>텍스트를 찾지 못했습니다.</div>
+            )}
+            {!ocrModal.error && ocrModal.mode === 'gemini' && ocrModal.rawText && (
+              <div
+                style={{
+                  background: '#0e1726',
+                  border: '1px solid #1f2937',
+                  borderRadius: 8,
+                  padding: 8,
+                  userSelect: 'text'
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#e5e7eb', marginBottom: 4 }}>추출된 텍스트</div>
+                <div style={{ color: '#e5e7eb', whiteSpace: 'pre-wrap' }}>{ocrModal.rawText}</div>
+                <button
+                  onClick={() => navigator.clipboard.writeText(ocrModal.rawText || '').catch(() => {})}
+                  style={{
+                    marginTop: 8,
+                    background: '#2563eb',
+                    border: 'none',
+                    borderRadius: 6,
+                    color: '#fff',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Copy
+                </button>
+              </div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+              WebView 전용 독립 기능입니다. 기존 트리/캡처 로직에 영향을 주지 않습니다.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const AppContent: React.FC = () => {
+  const { state, saveGemini } = useAppStore();
+                  <div
+                    key={`table-${idx}`}
+                    style={{
+                      background: '#0e1726',
+                      border: '1px solid #1f2937',
+                      borderRadius: 8,
+                      padding: 8,
+                      userSelect: 'text'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#e5e7eb', marginBottom: 4 }}>Table #{idx + 1}</div>
+                    {t.bbox && Array.isArray(t.bbox) && t.bbox.length >= 4 && (
+                      <div style={{ color: '#9ca3af', fontSize: 12, marginBottom: 4 }}>
+                        bbox: ({t.bbox[0]},{t.bbox[1]}) {t.bbox[2] - t.bbox[0]}x{t.bbox[3] - t.bbox[1]}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        background: '#0b1221',
+                        borderRadius: 6,
+                        padding: 8,
+                        border: '1px solid #1f2937',
+                        color: '#e5e7eb',
+                        fontSize: 12,
+                        overflowX: 'auto',
+                        marginBottom: 6
+                      }}
+                    >
+                      <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{t.html || '(no html)'} </pre>
+                    </div>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(t.html || '').catch(() => {})}
+                      style={{
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Copy HTML
+                    </button>
+                  {t.tsv && t.tsv.trim().length > 0 && (
+                    <>
+                      <div
+                        style={{
+                          background: '#0b1221',
+                            borderRadius: 6,
+                            padding: 8,
+                            border: '1px solid #1f2937',
+                            color: '#e5e7eb',
+                            fontSize: 12,
+                            overflowX: 'auto',
+                            marginTop: 6,
+                            marginBottom: 6
+                          }}
+                        >
+                          <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{t.tsv}</pre>
+                        </div>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(t.tsv || '').catch(() => {})}
+                          style={{
+                            background: '#22c55e',
+                            border: 'none',
+                            borderRadius: 6,
+                            color: '#0b1221',
+                            padding: '4px 8px',
+                            cursor: 'pointer',
+                            ...pressableStyle
+                          }}
+                          {...pressableHandlers}
+                      >
+                        Copy TSV
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+            {!ocrModal.error && ocrModal.mode === 'gemini' && !ocrModal.rawText && (
+              <div style={{ color: '#9ca3af' }}>텍스트를 찾지 못했습니다.</div>
+            )}
+            {!ocrModal.error && ocrModal.mode === 'gemini' && ocrModal.rawText && (
+              <div
+                style={{
+                  background: '#0e1726',
+                  border: '1px solid #1f2937',
+                  borderRadius: 8,
+                  padding: 8,
+                  userSelect: 'text'
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#e5e7eb', marginBottom: 4 }}>Gemini OCR</div>
+                <div
+                  style={{
+                    background: '#0b1221',
+                    borderRadius: 6,
+                    padding: 8,
+                    border: '1px solid #1f2937',
+                  color: '#e5e7eb',
+                  fontSize: 12,
+                  overflowX: 'auto'
+                }}
+              >
+                  <div
+                    style={{ lineHeight: 1.5 }}
+                    dangerouslySetInnerHTML={{
+                      __html: `${
+                        ocrModal.rawText
+                          ? `<style>
+                              .gemini-html table { border-collapse: collapse; border: 1px solid #e5e7eb; }
+                              .gemini-html td, .gemini-html th { border: 1px solid #e5e7eb; padding: 4px 6px; vertical-align: top; }
+                            </style><div class="gemini-html">${ocrModal.rawText}</div>`
+                          : ''
+                      }`
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={() => navigator.clipboard.writeText(ocrModal.rawText || '').catch(() => {})}
+                  style={{
+                    background: '#2563eb',
+                    border: 'none',
+                    borderRadius: 6,
+                    color: '#fff',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    marginTop: 6,
+                    ...pressableStyle
+                  }}
+                  {...pressableHandlers}
+                >
+                  Copy
+                </button>
+              </div>
+            )}
+            {!ocrModal.error &&
+              ocrModal.mode !== 'table' &&
+              ocrModal.mode !== 'gemini' &&
+              (!ocrModal.paragraphs || ocrModal.paragraphs.length === 0) &&
+              (!ocrModal.lines || ocrModal.lines.length === 0) &&
+              (!ocrModal.blocks || ocrModal.blocks.length === 0) && (
+              <div style={{ color: '#9ca3af' }}>텍스트를 찾지 못했습니다.</div>
+            )}
+            {!ocrModal.error &&
+              ocrModal.mode !== 'table' &&
+              ocrModal.mode !== 'gemini' &&
+              ((ocrModal.paragraphs && ocrModal.paragraphs.length > 0) ||
+                (ocrModal.lines && ocrModal.lines.length > 0) ||
+                (ocrModal.blocks && ocrModal.blocks.length > 0)) && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: 8
+                }}
+              >
+                {(ocrModal.paragraphs && ocrModal.paragraphs.length > 0
+                  ? ocrModal.paragraphs
+                  : ocrModal.lines && ocrModal.lines.length > 0
+                  ? ocrModal.lines
+                  : ocrModal.blocks
+                )?.map((b, idx) => (
+                  <div
+                      key={`${b.text}-${idx}`}
+                      style={{
+                        background: '#0e1726',
+                        border: '1px solid #1f2937',
+                        borderRadius: 8,
+                        padding: 8,
+                        userSelect: 'text'
+                      }}
+                    >
+                    <div style={{ fontWeight: 700, color: '#e5e7eb', marginBottom: 4 }}>{b.text}</div>
+                    <div style={{ color: '#9ca3af', fontSize: 12, marginBottom: 4, userSelect: 'text' }}>
+                      box: ({b.left},{b.top}) {b.width}x{b.height} · conf: {b.confidence ?? '-'}
+                    </div>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(b.text).catch(() => {})}
+                      style={{
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: 6,
+                        color: '#fff',
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        ...pressableStyle
+                      }}
+                      {...pressableHandlers}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+              WebView 전용 독립 기능입니다. 기존 트리/캡처 로직에 영향을 주지 않습니다.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const AppContent: React.FC = () => {
+  const { state, saveGemini } = useAppStore();
+  const [infoOpen, setInfoOpen] = React.useState(false);
+  const [licenseView, setLicenseView] = React.useState<{ name: string; text: string } | null>(null);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [geminiKey, setGeminiKey] = React.useState('');
+  const [geminiModel, setGeminiModel] = React.useState('gemini-2.5-flash');
+  const [saveStatus, setSaveStatus] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const appVersion = '0.0.4';
+  
+  const handleSaveGeminiKey = async () => {
+    if (!geminiKey.trim()) {
+      setSaveStatus({ type: 'error', message: 'API Key를 입력하세요.' });
+      return;
+    }
+    try {
+      // Backend API 호출
+      const response = await fetch('http://127.0.0.1:5005/api/settings/gemini-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: geminiKey, model: geminiModel })
+      });
+      
+      if (response.ok) {
+        await saveGemini(geminiKey, geminiModel);
+        setSaveStatus({ type: 'success', message: 'API Key가 암호화되어 저장되었습니다!' });
+        setTimeout(() => {
+          setSettingsOpen(false);
+          setSaveStatus(null);
+        }, 2000);
+      } else {
+        const error = await response.text();
+        setSaveStatus({ type: 'error', message: `저장 실패: ${error}` });
+      }
+    } catch (e) {
+      setSaveStatus({ type: 'error', message: `오류: ${String(e)}` });
+    }
+  };
+  
+  const ossLicenses = [
+    {
+      name: 'Electron',
+      version: '28.3.0',
+      license: 'MIT',
+      text: `MIT License
+
+Copyright (c) 2013-2025 Electron contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`
+    },
+    {
+      name: 'React',
+      version: '18.3.1',
+      license: 'MIT',
+      text: `MIT License
+
+Copyright (c) 2025 QA Bulls
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`
+    }
+  ];
+  React.useEffect(() => {
+    const off = window.groundview?.ui?.onInfo?.(() => setInfoOpen(true));
+    return () => {
+      if (off) off();
+    };
+  }, []);
+  const bg =
+    state.uiPhase === 'devices'
+      ? '#f5f7fb'
+      : state.uiPhase === 'welcome'
+      ? '#f7f9fb'
+      : 'radial-gradient(circle at 20% 20%, #1f2937, #0b1221)';
+  const textColor = state.uiPhase === 'devices' || state.uiPhase === 'welcome' ? '#0f172a' : '#e5e7eb';
+
+  const wrap = (content: React.ReactNode) => (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: bg,
+        color: textColor,
+        padding: 16,
+        fontFamily: 'Inter, system-ui, sans-serif',
+        position: 'relative'
+      }}
+    >
+      <style>{selectionStyle}</style>
+      {content}
+      {infoOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100
+          }}
+          onClick={() => setInfoOpen(false)}
+        >
+          <div
+            style={{
+              background: '#0b1221',
+              border: '1px solid #1f2937',
+              borderRadius: 12,
+              padding: 16,
+              width: 520,
+              maxWidth: '90%',
+              color: '#e5e7eb',
+              boxShadow: '0 16px 60px rgba(0,0,0,0.45)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>GroundView 정보</div>
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>버전 {appVersion} · 만든 사람: QA Bulls</div>
+              </div>
+              <button
+                onClick={() => setInfoOpen(false)}
+                style={{
+                  border: 'none',
+                  background: '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Close
+              </button>
+            </div>
+            <div style={{ marginBottom: 12, fontWeight: 700 }}>오픈소스 라이선스</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {ossLicenses.map((lic) => (
+                <div
+                  key={lic.name}
+                  style={{
+                    background: '#0e1726',
+                    border: '1px solid #1f2937',
+                    borderRadius: 8,
+                    padding: 10,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{lic.name}</div>
+                    <div style={{ color: '#9ca3af', fontSize: 12 }}>
+                      v{lic.version} · {lic.license}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setLicenseView({ name: lic.name, text: lic.text })}
+                    style={{
+                      border: '1px solid #1f2937',
+                      background: '#2563eb',
+                      color: '#fff',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                      ...pressableStyle
+                    }}
+                    {...pressableHandlers}
+                  >
+                    전문 보기
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {licenseView && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1150
+          }}
+          onClick={() => setLicenseView(null)}
+        >
+          <div
+            style={{
+              background: '#0b1221',
+              border: '1px solid #1f2937',
+              borderRadius: 12,
+              padding: 16,
+              width: 640,
+              maxWidth: '90%',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              color: '#e5e7eb',
+              boxShadow: '0 16px 60px rgba(0,0,0,0.5)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{licenseView.name}</div>
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>Open Source License</div>
+              </div>
+              <button
+                onClick={() => setLicenseView(null)}
+                style={{
+                  border: 'none',
+                  background: '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Close
+              </button>
+            </div>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                background: '#0e1726',
+                padding: 12,
+                borderRadius: 8,
+                border: '1px solid #1f2937',
+                color: '#e5e7eb',
+                fontSize: 12
+              }}
+            >
+              {licenseView.text}
+            </pre>
+          </div>
+        </div>
+      )}
+      {settingsOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1150
+          }}
+          onClick={() => {
+            setSettingsOpen(false);
+            setSaveStatus(null);
+          }}
+        >
+          <div
+            style={{
+              background: '#0b1221',
+              border: '1px solid #1f2937',
+              borderRadius: 12,
+              padding: 16,
+              width: 520,
+              maxWidth: '90%',
+              color: '#e5e7eb',
+              boxShadow: '0 16px 60px rgba(0,0,0,0.5)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>Gemini API 설정</div>
+                <div style={{ color: '#9ca3af', fontSize: 12 }}>API Key는 암호화되어 안전하게 저장됩니다</div>
+              </div>
+              <button
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setSaveStatus(null);
+                }}
+                style={{
+                  border: 'none',
+                  background: '#111827',
+                  color: '#e5e7eb',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontWeight: 700, marginBottom: 6 }}>API Key</label>
+              <input
+                type="password"
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+                placeholder="AIza..."
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  borderRadius: 8,
+                  border: '1px solid #1f2937',
+                  background: '#0e1726',
+                  color: '#e5e7eb',
+                  fontSize: 14
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontWeight: 700, marginBottom: 6 }}>모델</label>
+              <select
+                value={geminiModel}
+                onChange={(e) => setGeminiModel(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  borderRadius: 8,
+                  border: '1px solid #1f2937',
+                  background: '#0e1726',
+                  color: '#e5e7eb',
+                  fontSize: 14
+                }}
+              >
+                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+              </select>
+            </div>
+
+            {saveStatus && (
+              <div
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  marginBottom: 12,
+                  background: saveStatus.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                  color: saveStatus.type === 'success' ? '#4ade80' : '#f87171',
+                  border: `1px solid ${saveStatus.type === 'success' ? '#22c55e' : '#ef4444'}`
+                }}
+              >
+                {saveStatus.message}
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveGeminiKey}
+              style={{
+                width: '100%',
+                padding: 12,
+                borderRadius: 8,
+                border: 'none',
+                background: '#2563eb',
+                color: '#fff',
+                fontWeight: 700,
+                cursor: 'pointer',
+                ...pressableStyle
+              }}
+              {...pressableHandlers}
+            >
+              💾 저장
+            </button>
+
+            <div style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
+              <div style={{ marginBottom: 4 }}>🔒 API Key는 PBKDF2-HMAC-SHA256 해시 + Fernet 암호화로 보호됩니다</div>
+              <div>📌 Gemini API Key는 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>Google AI Studio</a>에서 발급받을 수 있습니다</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (state.uiPhase === 'welcome') {
+    return wrap(<Welcome />);
+  }
+  if (state.uiPhase === 'analyze' && state.lastCapture?.screenshotPath && state.tree) {
+    return wrap(<AnalyzePage />);
+  }
+  return wrap(<DevicesPage />);
+};
+
+export default App;

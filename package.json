@@ -1,0 +1,116 @@
+{
+  "name": "groundview",
+  "version": "0.0.5",
+  "private": true,
+  "description": "GroundView desktop app (ADB/WDA capture, OCR, locator generator).",
+  "author": {
+    "name": "QA Bulls"
+  },
+  "main": "app/main.js",
+  "build": {
+    "appId": "com.groundview.app",
+    "productName": "GroundView",
+    "directories": {
+      "output": "dist/electron"
+    },
+    "files": [
+      "app/**/*",
+      "dist/renderer/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!user-data/**/*",
+      "!**/*.log",
+      "!**/.DS_Store"
+    ],
+    "extraResources": [
+      "backend/**/*",
+      "requirements.txt",
+      "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.md"
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "publisherName": "QA Bulls",
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        "zip"
+      ],
+      "signingHashAlgorithms": [],
+      "sign": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GroundView",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false,
+      "warningsAsErrors": false,
+      "license": "LICENSE.txt",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico",
+      "runAfterFinish": true,
+      "menuCategory": true,
+      "displayLanguageSelector": false
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "zip"
+      ]
+    }
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --success first \"npm:dev:py\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:py": "cross-env MODEL_PORT=5005 python backend/server.py",
+    "dev:electron": "cross-env NODE_ENV=development RENDERER_URL=http://localhost:3000 electron .",
+    "dev:renderer": "cross-env VITE_MODEL_PORT=5005 vite dev --host --port 3000",
+    "dev:app": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder",
+    "dist:verbose": "npm run build && cross-env DEBUG=electron-builder electron-builder",
+    "check:python": "python -c \"import sys; print(sys.version)\"",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "format": "prettier -w .",
+    "test": "vitest run",
+    "test:ui": "vitest --ui"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.2.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^28.3.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.57.0",
+    "jsdom": "^24.0.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.0",
+    "vite-tsconfig-paths": "^4.2.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
