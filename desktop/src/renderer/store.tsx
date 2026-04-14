@@ -37,6 +37,7 @@ type State = {
   saving?: boolean;
   geminiApiKey?: string;
   geminiModel?: string;
+  gvServiceStatus?: 'unknown' | 'ready' | 'installing' | 'waiting_permission' | 'unavailable';
 };
 
 type XmlNodeSample = {
@@ -85,6 +86,7 @@ type Action =
   | { type: 'capturing'; value: boolean }
   | { type: 'saving'; value: boolean }
   | { type: 'gemini'; key?: string; model?: string }
+  | { type: 'gvServiceStatus'; status: State['gvServiceStatus'] }
   | {
       type: 'meta';
       payload: {
@@ -147,6 +149,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, saving: action.value };
     case 'gemini':
       return { ...state, geminiApiKey: action.key, geminiModel: action.model };
+    case 'gvServiceStatus':
+      return { ...state, gvServiceStatus: action.status };
     case 'meta':
       return {
         ...state,
@@ -308,6 +312,11 @@ const setPlatform = (p: Platform) => {
     const svc = pickService();
     dispatch({ type: 'status', message: 'Capturing screen...' });
     dispatch({ type: 'log', message: `[info] Capturing from ${state.selectedDevice.id}` });
+    // GV Service 설치/활성화 대기 안내
+    if (state.platform === 'android') {
+      dispatch({ type: 'status', message: '📱 GroundView Service 확인 중... (최초 실행 시 접근성 권한 활성화 필요)' });
+      dispatch({ type: 'gvServiceStatus', status: 'unknown' });
+    }
     const res = (await svc.capture(state.selectedDevice.id)) as CaptureResult;
     if (res.error) {
       dispatch({ type: 'status', message: `Capture failed: ${res.error}` });
@@ -320,10 +329,18 @@ const setPlatform = (p: Platform) => {
     } else {
       const compSize = res.xmlStats?.compressedBytes;
       const uncompSize = res.xmlStats?.uncompressedBytes;
+      const methodInfo = res.captureMethod ? ` [${res.captureMethod}]` : '';
       const sizeInfo =
         compSize || uncompSize
-          ? ` (compressed: ${compSize ?? 0}B, uncompressed: ${uncompSize ?? 0}B, picked: ${res.xmlVariant || 'n/a'})`
-          : '';
+          ? ` (compressed: ${compSize ?? 0}B, uncompressed: ${uncompSize ?? 0}B, picked: ${res.xmlVariant || 'n/a'})${methodInfo}`
+          : methodInfo;
+      // GV Service fallback 안내
+      if (res.captureMethod !== 'accessibility-service' && state.platform === 'android') {
+        dispatch({ type: 'log', message: '[warn] GroundView Service 미활성화 — uiautomator dump 사용 중. Compose 앱은 요소가 제한될 수 있습니다.' });
+        dispatch({ type: 'gvServiceStatus', status: 'waiting_permission' });
+      } else if (res.captureMethod === 'accessibility-service') {
+        dispatch({ type: 'gvServiceStatus', status: 'ready' });
+      }
       const effectiveXml = res.xmlPath || res.xmlPathUncompressed || res.xmlPathCompressed;
       dispatch({
         type: 'status',
@@ -660,8 +677,9 @@ function buildTree(xml: string): UiNode[] {
       y2: Number(m[4])
     };
   };
-  const isMeaningful = (n: UiNode) =>
-    !!(
+  const isMeaningful = (n: UiNode) => {
+    // Standard meaningful check
+    if (
       n.resourceId ||
       n.contentDesc ||
       n.text ||
@@ -670,7 +688,16 @@ function buildTree(xml: string): UiNode[] {
       n.checkable ||
       n.scrollable ||
       n.longClickable
-    );
+    )
+      return true;
+    // Phase 1 Compose support: nodes with bounds that are interactive or have a Compose class
+    if (n.bounds && n.cls) {
+      const cls = n.cls.toLowerCase();
+      if (cls.includes('compose') || cls.includes('button') || cls.includes('text'))
+        return true;
+    }
+    return false;
+  };
 
   const trimMeaninglessRoot = (nodes: UiNode[]): UiNode[] => {
     let current = nodes;
@@ -689,8 +716,8 @@ function buildTree(xml: string): UiNode[] {
   };
 
   const compressChains = (nodes: UiNode[]): UiNode[] => {
-    const isMeaningful = (n: UiNode) =>
-      !!(
+    const isMeaningful = (n: UiNode) => {
+      if (
         n.resourceId ||
         n.contentDesc ||
         n.text ||
@@ -699,7 +726,15 @@ function buildTree(xml: string): UiNode[] {
         n.checkable ||
         n.scrollable ||
         n.longClickable
-      );
+      )
+        return true;
+      if (n.bounds && n.cls) {
+        const cls = n.cls.toLowerCase();
+        if (cls.includes('compose') || cls.includes('button') || cls.includes('text'))
+          return true;
+      }
+      return false;
+    };
     const sameBounds = (a?: string, b?: string) => !!a && !!b && a === b;
     const mergeFlags = (parent: UiNode, child: UiNode) => {
       parent.resourceId = parent.resourceId || child.resourceId;

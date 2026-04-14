@@ -59,3 +59,20 @@ backend/models/paddleocr/
 # Temporary files
 *.tmp
 *.temp
+
+# macOS build copy (local only)
+macos-build/
+
+# Large binary files
+python-3.10.11-amd64.exe
+*.exe
+!build/**/*.exe
+
+# Appkium source (reference only, not part of project)
+Appkium/
+
+# groundview-service build artifacts (APK is in resources/)
+groundview-service/app/build/
+groundview-service/.gradle/
+groundview-service/.idea/
+groundview-service/build/

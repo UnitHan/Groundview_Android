@@ -19,6 +19,9 @@ export const DevicesPage: React.FC = () => {
     }
   };
 
+  const gvStatus = state.gvServiceStatus;
+  const showGvBanner = state.platform === 'android' && gvStatus === 'waiting_permission';
+
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -228,6 +231,39 @@ export const DevicesPage: React.FC = () => {
                     <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', marginTop: 4 }}>
                       Ready to capture from: {state.selectedDevice.id}
                     </div>
+                    {showGvBanner && (
+                      <div style={{
+                        background: '#fffbeb',
+                        border: '1px solid #fcd34d',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        color: '#92400e',
+                        fontSize: 13,
+                        lineHeight: 1.6
+                      }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>📱 GroundView Service 접근성 권한 필요</div>
+                        <div>Compose 앱 지원을 위해 최초 1회 설정이 필요합니다.</div>
+                        <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 12, background: '#fef3c7', padding: '4px 8px', borderRadius: 6 }}>
+                          설정 → 접근성 → GroundView Service → 활성화
+                        </div>
+                        <div style={{ marginTop: 8, color: '#78350f', fontSize: 12 }}>
+                          활성화 후 Capture Screen을 다시 눌러주세요.
+                        </div>
+                      </div>
+                    )}
+                    {gvStatus === 'ready' && (
+                      <div style={{
+                        background: '#f0fdf4',
+                        border: '1px solid #86efac',
+                        borderRadius: 10,
+                        padding: '8px 14px',
+                        color: '#166534',
+                        fontSize: 13,
+                        fontWeight: 600
+                      }}>
+                        ✅ GroundView Service 활성화됨 — Compose 앱 지원
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

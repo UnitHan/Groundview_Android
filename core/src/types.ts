@@ -11,11 +11,12 @@ export interface CaptureResult {
   xmlPath?: string;
   xmlPathCompressed?: string;
   xmlPathUncompressed?: string;
-  xmlVariant?: 'compressed' | 'uncompressed';
+  xmlVariant?: 'compressed' | 'uncompressed' | 'uiautomator2' | 'groundview-service';
   xmlStats?: {
     compressedBytes?: number;
     uncompressedBytes?: number;
   };
+  captureMethod?: 'uiautomator-dump' | 'uiautomator2-server' | 'accessibility-service' | 'wda';
   error?: string;
 }
 

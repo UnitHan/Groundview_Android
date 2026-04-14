@@ -25,6 +25,7 @@
     "extraResources": [
       "backend/**/*",
       "requirements.txt",
+      "resources/**/*",
       "LICENSE.txt",
       "THIRD-PARTY-NOTICES.md"
     ],

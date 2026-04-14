@@ -6,28 +6,35 @@ import iconImage from '/icon.png';
 export const Welcome: React.FC = () => {
   const { setAdbPath, scanAdb, setPhase } = useAppStore();
   const [message, setMessage] = React.useState('');
+  const [picking, setPicking] = React.useState(false);
 
   const pickAdb = async () => {
+    if (picking) return;
+    setPicking(true);
     console.log('pickAdb called');
-    if (window.groundview?.dialog?.openAdb) {
-      const res = await window.groundview.dialog.openAdb();
-      console.log('Dialog result:', res);
-      if (res?.ok && res.path) {
-        await setAdbPath(res.path);
-        console.log('ADB path set, changing phase to devices');
-        setPhase('devices');
-        return;
+    try {
+      if (window.groundview?.dialog?.openAdb) {
+        const res = await window.groundview.dialog.openAdb();
+        console.log('Dialog result:', res);
+        if (res?.ok && res.path) {
+          await setAdbPath(res.path);
+          console.log('ADB path set, changing phase to devices');
+          setPhase('devices');
+          return;
+        }
       }
-    }
-    console.log('Scanning for ADB...');
-    const found = await scanAdb();
-    console.log('Found ADB paths:', found);
-    if (found[0]) {
-      await setAdbPath(found[0]);
-      console.log('Setting phase to devices');
-      setPhase('devices');
-    } else {
-      setMessage('ADB를 찾지 못했습니다. 다운로드 후 다시 선택하세요.');
+      console.log('Scanning for ADB...');
+      const found = await scanAdb();
+      console.log('Found ADB paths:', found);
+      if (found[0]) {
+        await setAdbPath(found[0]);
+        console.log('Setting phase to devices');
+        setPhase('devices');
+      } else {
+        setMessage('ADB를 찾지 못했습니다. 다운로드 후 다시 선택하세요.');
+      }
+    } finally {
+      setPicking(false);
     }
   };
 
@@ -65,19 +72,19 @@ export const Welcome: React.FC = () => {
           Mobile UI Capture & Locator Generator
         </div>
       </div>
-      <button onClick={pickAdb} style={{
+      <button onClick={pickAdb} disabled={picking} style={{
         padding: '14px 28px',
         fontSize: 16,
         borderRadius: 12,
         border: 'none',
-        background: '#2563eb',
+        background: picking ? '#9ca3af' : '#2563eb',
         color: '#fff',
         fontWeight: 800,
-        cursor: 'pointer',
+        cursor: picking ? 'wait' : 'pointer',
         ...pressableStyle,
         boxShadow: '0 6px 16px rgba(37,99,235,0.25)'
       }} {...pressableHandlers}>
-        Select ADB
+        {picking ? 'Selecting...' : 'Select ADB'}
       </button>
       <div style={{ textAlign: 'center', color: '#64748b', fontSize: 14, marginTop: 8 }}>
         You need Android Debug Bridge (ADB) to use this application.
