@@ -31,13 +31,13 @@
   
   ; Installer window title
   !define MUI_TEXT_WELCOME_INFO_TITLE "GroundView 설치 마법사"
-  !define MUI_TEXT_WELCOME_INFO_TEXT "이 프로그램은 GroundView ${VERSION}를 설치합니다.$\r$\n$\r$\nGroundView는 Appium 테스트 자동화를 위한 AI 기반 로케이터 생성 도구입니다.$\r$\n$\r$\n시스템 요구사항:$\r$\n• Windows 10/11 (64비트)$\r$\n• Python 3.10 이상 (자동 설치)$\r$\n• 4GB RAM 이상 권장$\r$\n• 500MB 디스크 공간$\r$\n$\r$\n계속하려면 [다음]을 클릭하세요."
+  !define MUI_TEXT_WELCOME_INFO_TEXT "이 프로그램은 GroundView ${VERSION}를 설치합니다.$\r$\n$\r$\nGroundView는 Appium 테스트 자동화를 위한 AI 기반 로케이터 생성 도구입니다.$\r$\n$\r$\n시스템 요구사항:$\r$\n• Windows 10/11 (64비트)$\r$\n• 4GB RAM 이상 권장$\r$\n• 700MB 디스크 공간$\r$\n$\r$\n계속하려면 [다음]을 클릭하세요."
 !macroend
 
 ; Custom installation type page
 !macro customInstallMode
   ; Directory page description
-  !define MUI_DIRECTORYPAGE_TEXT_TOP "GroundView를 설치할 폴더를 선택하세요.$\r$\n$\r$\n기본 경로: $INSTDIR$\r$\n필요한 공간: 약 500MB"
+  !define MUI_DIRECTORYPAGE_TEXT_TOP "GroundView를 설치할 폴더를 선택하세요.$\r$\n$\r$\n기본 경로: $INSTDIR$\r$\n필요한 공간: 약 700MB"
   !define MUI_DIRECTORYPAGE_TEXT_DESTINATION "대상 폴더"
 !macroend
 
@@ -61,18 +61,8 @@
     Continue:
   ${EndIf}
   
-  ; Check Python (optional, just show warning)
-  nsExec::ExecToStack 'python --version'
-  Pop $0
-  Pop $1
-  ${If} $0 != 0
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "Python이 설치되어 있지 않거나 PATH에 없습니다.$\r$\n$\r$\nGroundView는 Python 3.10 이상이 필요합니다.$\r$\n$\r$\n계속하시겠습니까?$\r$\n(나중에 Python을 설치할 수 있습니다)" IDYES ContinuePython IDNO CancelPython
-    
-    CancelPython:
-      Abort "설치가 취소되었습니다."
-      
-    ContinuePython:
-  ${EndIf}
+  ; Python is bundled in resources/python-bundle — no system Python required.
+  ; Skipping Python check.
 !macroend
 
 ; Post-install actions
@@ -89,9 +79,9 @@
   DetailPrint ""
   DetailPrint "다음 단계:"
   DetailPrint "1. GroundView를 실행하세요"
-  DetailPrint "2. Python 패키지 자동 설치를 기다리세요 (첫 실행 시)"
-  DetailPrint "3. Settings에서 Gemini API Key를 등록하세요"
-  DetailPrint "4. ADB 경로를 설정하고 디바이스를 연결하세요"
+  DetailPrint "2. Settings에서 Gemini API Key를 등록하세요"
+  DetailPrint "3. ADB 경로를 설정하고 디바이스를 연결하세요"
+  DetailPrint "   (ADB는 Android SDK Platform Tools에 포함되어 있습니다)"
 !macroend
 
 ; Custom installer init

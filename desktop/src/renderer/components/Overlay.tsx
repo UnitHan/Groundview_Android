@@ -109,11 +109,13 @@ export const Overlay: React.FC<Props> = ({
 }) => {
   const toFileUrl = (p?: string) => {
     if (!p) return undefined;
-    // Normalize Windows paths so Chromium accepts them (file:///C:/...)
+    // Use secure restricted protocol instead of bare file://
+    // groundview-file:// handler in main.js validates path is within tmpdir/userData only.
     const normalized = p.replace(/\\/g, '/');
-    if (normalized.startsWith('file://')) return normalized;
-    if (normalized.startsWith('/')) return `file://${normalized}`;
-    return `file:///${normalized}`;
+    if (normalized.startsWith('groundview-file://')) return normalized;
+    if (/^[A-Za-z]:\//.test(normalized)) return `groundview-file:///${normalized}`;
+    if (normalized.startsWith('/')) return `groundview-file://${normalized}`;
+    return `groundview-file:///${normalized}`;
   };
 
   const [natural, setNatural] = useState<{ w: number; h: number }>({ w: 1, h: 1 });

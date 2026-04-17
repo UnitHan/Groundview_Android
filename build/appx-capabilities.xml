@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX Custom Capabilities Extension
+  runFullTrust: required for spawning external processes (adb, python backend)
+  This file is referenced by package.json appx.customExtensionsPath
+-->
+<Extensions>
+  <rescap:Capability Name="runFullTrust" />
+</Extensions>

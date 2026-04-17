@@ -4,6 +4,7 @@ export interface DeviceInfo {
   id: string;
   name?: string;
   platform: Platform;
+  wireless?: boolean;
 }
 
 export interface CaptureResult {

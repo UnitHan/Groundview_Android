@@ -6,10 +6,13 @@ import geminiLogo from '/Gemini_logo.png';
 export const DevicesPage: React.FC = () => {
   const { state, loadDevices, selectDevice, capture } = useAppStore();
 
+  // 마운트 시 즉시 로드 + 3초마다 자동 폴링 (analyze 중엔 폴링 중단)
   React.useEffect(() => {
-    console.log('DevicesPage mounted, loading devices...');
     loadDevices();
-  }, []);
+    if (state.uiPhase === 'analyze') return;
+    const timer = setInterval(() => loadDevices(), 3000);
+    return () => clearInterval(timer);
+  }, [state.uiPhase]);
 
   const loadDump = async () => {
     if (!window.groundview?.dialog?.openDump) return;
@@ -32,7 +35,7 @@ export const DevicesPage: React.FC = () => {
           style={{ height: 40, objectFit: 'contain', marginLeft: 12 }}
         />
       </div>
-      <div style={{ marginBottom: 20, color: colors.textSub }}>ADB/WDA capture & locator generator</div>
+      <div style={{ marginBottom: 20, color: colors.textSub }}>Android UI Inspector & Test Automation Locator Tool</div>
       
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* ADB FOUND Section */}
@@ -143,25 +146,45 @@ export const DevicesPage: React.FC = () => {
             ) : (
               <div style={{ width: '100%', maxWidth: 640, textAlign: 'left', color: '#0f172a' }}>
                 <div style={{ marginBottom: 10, color: '#475569' }}>Select Device</div>
-                <select
-                  value={state.selectedDevice?.id || ''}
-                  onChange={(e) => selectDevice(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: 12,
-                    borderRadius: 10,
-                    border: '1px solid #c8f5d3',
-                    marginBottom: 12,
-                    fontSize: 14
-                  }}
-                >
-                  <option value="">Choose a device...</option>
-                  {state.devices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name || d.id}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                  {state.devices.map((d) => {
+                    const isWireless = /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(d.id);
+                    const isSelected = state.selectedDevice?.id === d.id;
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => selectDevice(d.id)}
+                        style={{
+                          width: '100%',
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          border: isSelected ? '2px solid #16a34a' : '1px solid #c8f5d3',
+                          background: isSelected ? '#dcfce7' : '#fff',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          textAlign: 'left',
+                          ...pressableStyle
+                        }}
+                        {...pressableHandlers}
+                      >
+                        <span style={{ fontSize: 20 }}>{isWireless ? '📡' : '📱'}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                            {d.name || d.id}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                            {d.id}{isWireless ? ' · 무선' : ' · USB'}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span style={{ color: '#16a34a', fontWeight: 800, fontSize: 13 }}>✓ Selected</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
                 {!state.selectedDevice && (
                   <div
                     style={{

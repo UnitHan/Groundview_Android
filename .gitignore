@@ -19,6 +19,9 @@ venv.bak/
 dist/
 *.egg-info/
 
+# Python bundle (built locally before dist, too large for git)
+resources/python-bundle/
+
 # User data
 user-data/
 !user-data/settings.json

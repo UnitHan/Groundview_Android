@@ -43,10 +43,25 @@
           "target": "nsis",
           "arch": ["x64"]
         },
+        {
+          "target": "appx",
+          "arch": ["x64"]
+        },
         "zip"
       ],
       "signingHashAlgorithms": [],
       "sign": null
+    },
+    "appx": {
+      "identityName": "QABulls.GroundView",
+      "publisher": "CN=DBF2708E-1A7A-45A4-922A-4B40C76E2C11",
+      "publisherDisplayName": "QA Bulls",
+      "displayName": "GroundView",
+      "applicationId": "GroundView",
+      "backgroundColor": "transparent",
+      "languages": ["ko-KR", "en-US"],
+      "showNameOnTiles": true,
+      "artifactName": "${productName}-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -82,6 +97,11 @@
     "dev:app": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\"",
     "build": "vite build",
     "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && node scripts/bundle-python.js && electron-builder --win",
+    "dist:win:norebuild": "electron-builder --win nsis",
+    "dist:msix": "npm run build && node scripts/bundle-python.js && electron-builder --win appx",
+    "dist:msix:norebuild": "electron-builder --win appx",
+    "bundle-python": "node scripts/bundle-python.js",
     "dist:verbose": "npm run build && cross-env DEBUG=electron-builder electron-builder",
     "check:python": "python -c \"import sys; print(sys.version)\"",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",

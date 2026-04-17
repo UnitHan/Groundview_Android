@@ -4,14 +4,13 @@
     "useDefineForClassFields": true,
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "module": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "strict": true,
     "jsx": "react-jsx",
     "types": ["node", "vite/client", "react", "react-dom"],
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "baseUrl": "."
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["desktop/src", "app", "core", "android", "ios", "desktop/src/types"],
   "exclude": ["node_modules", "dist"]

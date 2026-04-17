@@ -156,15 +156,29 @@ function parseDevices(output) {
     .map((l) => l.trim())
     .filter(Boolean)
     .filter((l) => !l.startsWith('List of devices'));
+
   return lines
     .map((line) => {
       const parts = line.split(/\s+/);
       if (parts.length < 2) return null;
       const id = parts[0];
+      const status = parts[1]; // 'device', 'offline', 'unauthorized', etc.
+
+      // Only return ready devices
+      if (status !== 'device') return null;
+
       const modelMatch = line.match(/model:([^\s]+)/);
       const deviceMatch = line.match(/device:([^\s]+)/);
-      const name = modelMatch ? modelMatch[1] : deviceMatch ? deviceMatch[1] : undefined;
-      return { id, name, platform: 'android' };
+      let name = modelMatch ? modelMatch[1].replace(/_/g, ' ') : deviceMatch ? deviceMatch[1] : undefined;
+
+      // For wireless connections (ip:port format), append IP to name
+      const isWireless = /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(id);
+      if (isWireless) {
+        const ip = id.split(':')[0];
+        name = name ? `${name} (${ip})` : ip;
+      }
+
+      return { id, name: name || id, platform: 'android', wireless: isWireless };
     })
     .filter(Boolean);
 }
@@ -198,11 +212,23 @@ async function capture(deviceId) {
   }
 
   const screenshotPath = tmpFile('png');
-  const longTimeout = 20000;
-  const captureScreen = () =>
-    runAdbToFile(['-s', deviceId, 'exec-out', 'screencap', '-p'], screenshotPath, {
-      timeout: longTimeout
-    });
+  const longTimeout = 30000;
+
+  // Two-step capture: write PNG to device storage first, then pull.
+  // This is significantly faster than streaming via exec-out on most USB connections.
+  // Falls back to exec-out streaming if the two-step approach fails.
+  const DEVICE_TMP = '/sdcard/gv_screenshot_tmp.png';
+  const captureScreen = async () => {
+    try {
+      await runAdb(['-s', deviceId, 'shell', 'screencap', '-p', DEVICE_TMP], { timeout: longTimeout });
+      await runAdbToFile(['-s', deviceId, 'exec-out', 'cat', DEVICE_TMP], screenshotPath, { timeout: longTimeout });
+      // best-effort cleanup
+      runAdb(['-s', deviceId, 'shell', 'rm', '-f', DEVICE_TMP], { timeout: 5000 }).catch(() => {});
+    } catch {
+      // fallback: stream directly (original method)
+      await runAdbToFile(['-s', deviceId, 'exec-out', 'screencap', '-p'], screenshotPath, { timeout: longTimeout });
+    }
+  };
 
   // ─── Phase 2: groundview-service AccessibilityService (Compose 지원) ───
   try {
@@ -409,10 +435,15 @@ function findGVServiceApk() {
 }
 
 async function isGVServiceInstalled(deviceId) {
-  // pm list packages (필터 없이) → stdout에 패키지 목록, stderr에 SecurityException 섞임
-  // runSpawn은 exit code != 0이면 에러로 처리하므로, 직접 spawn으로 stdout만 수집
-  const tryOnce = () => new Promise((resolve) => {
-    const ps = require('child_process').spawn(adbBin, ['-s', deviceId, 'shell', 'pm', 'list', 'packages'], { windowsHide: true });
+  console.log(`[gv-service] checking if ${GV_SERVICE_PKG} is installed on ${deviceId}...`);
+
+  // adb shell pm list packages --user 0  (사용자 권한으로 설치된 앱만 확인)
+  const tryCheck = () => new Promise((resolve) => {
+    const ps = require('child_process').spawn(
+      adbBin,
+      ['-s', deviceId, 'shell', 'pm', 'list', 'packages', '--user', '0'],
+      { windowsHide: true }
+    );
     let stdout = '';
     ps.stdout.on('data', (d) => { stdout += d.toString(); });
     ps.on('close', () => resolve(stdout));
@@ -420,23 +451,35 @@ async function isGVServiceInstalled(deviceId) {
     setTimeout(() => { try { ps.kill(); } catch {} resolve(''); }, 10000);
   });
 
-  let stdout = await tryOnce();
+  let stdout = await tryCheck();
+
   // stdout이 비어있으면 ADB 데몬 초기화 중 — 1.5초 후 재시도
   if (!stdout.trim()) {
-    console.log('[gv-service] pm list empty, retrying...');
+    console.log('[gv-service] pm list --user 0 returned empty, retrying after 1.5s...');
     await new Promise((r) => setTimeout(r, 1500));
-    stdout = await tryOnce();
+    stdout = await tryCheck();
   }
-  console.log('[gv-service] pm list stdout length:', stdout.length, 'sample:', stdout.slice(0, 100));
+
   const found = stdout.includes(`package:${GV_SERVICE_PKG}`);
-  console.log('[gv-service] pm list packages includes groundview:', found);
+
+  if (found) {
+    console.log(`[gv-service] ✓ ${GV_SERVICE_PKG} is already installed — skipping install`);
+  } else {
+    console.log(`[gv-service] ✗ ${GV_SERVICE_PKG} not found in package list — will install`);
+  }
+
   return found;
 }
 
 async function installGVServiceApk(deviceId) {
   const apk = findGVServiceApk();
-  if (!apk) throw new Error('GroundView Service APK를 찾을 수 없습니다. groundview-service 빌드가 필요합니다.');
+  if (!apk) {
+    console.log('[gv-service] ✗ APK not found in any candidate path');
+    throw new Error('GroundView Service APK를 찾을 수 없습니다. groundview-service 빌드가 필요합니다.');
+  }
+  console.log(`[gv-service] installing APK: ${apk}`);
   await runAdb(['-s', deviceId, 'install', '-r', '-g', apk], { timeout: 60000 });
+  console.log('[gv-service] ✓ APK install complete');
 }
 
 async function launchGVServiceApp(deviceId) {
@@ -476,21 +519,20 @@ async function ensureGVService(deviceId) {
   // ADB 데몬이 막 시작된 경우 pm 명령이 빈 결과를 반환할 수 있으므로 추가 대기
   await new Promise((r) => setTimeout(r, 1000));
 
-  // APK 설치 확인 → 없으면 설치
+  // APK 설치 확인 → 없으면 설치, 있으면 건너뜀
   const installed = await isGVServiceInstalled(deviceId);
-  console.log('[gv-service] installed:', installed);
   if (!installed) {
     try {
-      console.log('[gv-service] installing APK...');
       await installGVServiceApk(deviceId);
-      console.log('[gv-service] APK installed');
       // 설치 후 포트 포워딩 재설정 (install -r이 기존 연결을 끊음)
       await new Promise((r) => setTimeout(r, 1000));
       await setupGVServicePort(deviceId);
     } catch (e) {
-      console.log('[gv-service] APK install failed:', e.message);
+      console.log('[gv-service] ✗ APK install failed:', e.message);
       return { ready: false, installed: false, error: e.message };
     }
+  } else {
+    console.log('[gv-service] install step skipped (already installed)');
   }
 
   // 서버가 이미 응답하면 (접근성 권한이 이미 활성화된 경우) 바로 사용

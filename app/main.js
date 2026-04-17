@@ -1,7 +1,8 @@
 // Minimal Electron entrypoint; loads renderer dev server or packaged file.
-// Suppress security warnings in dev; packaging will remove this.
-process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
-const { app, BrowserWindow, ipcMain, dialog, shell, session, Menu } = require('electron');
+if (process.env.NODE_ENV === 'development') {
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+}
+const { app, BrowserWindow, ipcMain, dialog, shell, session, Menu, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const adb = require('./services/adbService');
@@ -13,6 +14,12 @@ const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 let lastZipDir = '';
+
+// groundview-file:// — restricted protocol for serving screenshot and temp files.
+// Must be registered synchronously before app becomes ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'groundview-file', privileges: { secure: true, supportFetchAPI: true, corsEnabled: false } }
+]);
 let backendProcess = null;
 
 // Use per-user data in production; keep local data in dev/portable mode.
@@ -41,6 +48,22 @@ app.commandLine.appendSwitch('disk-cache-dir', cacheDir);
 app.commandLine.appendSwitch('media-cache-dir', cacheDir);
 app.commandLine.appendSwitch('disable-http-cache', '1');
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
+// Detect bundled Python EARLY — must run before startPythonServer().
+// createWindow() runs AFTER startPythonServer(), so detection here is critical.
+// extraResources "resources/**/*" → {resourcesPath}/resources/python-bundle/
+if (!process.env.PYTHON_BIN) {
+  const embedPyWin  = path.join(process.resourcesPath || '', 'resources', 'python-bundle', 'python.exe');
+  const bundledPyWin = path.join(process.resourcesPath || '', 'venv', 'Scripts', 'python.exe');
+  const bundledPyNix = path.join(process.resourcesPath || '', 'venv', 'bin', 'python3');
+  if (fsSync.existsSync(embedPyWin)) {
+    process.env.PYTHON_BIN = embedPyWin;
+  } else if (fsSync.existsSync(bundledPyWin)) {
+    process.env.PYTHON_BIN = bundledPyWin;
+  } else if (fsSync.existsSync(bundledPyNix)) {
+    process.env.PYTHON_BIN = bundledPyNix;
+  }
+}
 
 const migrateLegacyGeminiSettings = () => {
   const legacyFile = path.join(portableUserDataPath, 'settings.json');
@@ -96,8 +119,9 @@ const migrateLegacyGeminiSettings = () => {
 migrateLegacyGeminiSettings();
 
 // Default PaddleOCR cache path (if not set by user)
+// MSIX: process.cwd() is read-only (WindowsApps), so use writable userData path instead.
 if (!process.env.PADDLEOCR_HOME) {
-  const defaultOcrHome = path.join(process.cwd(), 'backend', 'models', 'paddleocr');
+  const defaultOcrHome = path.join(effectiveUserDataPath, 'models', 'paddleocr');
   try {
     fsSync.mkdirSync(defaultOcrHome, { recursive: true });
     process.env.PADDLEOCR_HOME = defaultOcrHome;
@@ -228,17 +252,42 @@ const readGeminiSettings = () => {
   return { key: undefined, model: undefined };
 };
 
-// Load stored Gemini credentials from settings.json (if present)
+// Load stored Gemini model preference at startup.
+// NOTE: API key is intentionally NOT written to process.env here to avoid
+// leaking it into unrelated child processes (adb, powershell, etc.).
+// The key is read directly from settings at the point of use via loadGeminiEnv().
 const preloadGeminiFromSettings = () => {
   try {
-    const { key, model } = readGeminiSettings();
-    if (key) process.env.GEMINI_API_KEY = key;
+    const { model } = readGeminiSettings();
     if (model) process.env.GEMINI_MODEL = model;
   } catch {
     /* ignore */
   }
 };
 preloadGeminiFromSettings();
+
+// Restore saved ADB path and auto-detect if not saved
+const preloadAdbFromSettings = () => {
+  try {
+    const settingsPath = path.join(effectiveUserDataPath, 'settings.json');
+    if (fsSync.existsSync(settingsPath)) {
+      const raw = fsSync.readFileSync(settingsPath, 'utf8');
+      const parsed = parseSettingsJsonSync(raw);
+      if (parsed.ok && parsed.data?.adbPath) {
+        try {
+          fsSync.accessSync(parsed.data.adbPath, fsSync.constants.X_OK);
+          adb.setAdbPath(parsed.data.adbPath);
+          return; // saved path still valid
+        } catch { /* stale path, fall through to auto-detect */ }
+      }
+    }
+  } catch { /* ignore */ }
+  // Auto-detect on startup (async, best-effort)
+  scanAdbPaths().then(found => {
+    if (found.length > 0) adb.setAdbPath(found[0]);
+  }).catch(() => {});
+};
+preloadAdbFromSettings();
 
 const loadGeminiEnv = () => {
   let key = process.env.GEMINI_API_KEY;
@@ -288,9 +337,8 @@ const createWindow = () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      devTools: true,
-      // file:// 스크린샷 로딩을 위해 webSecurity 비활성화 (개발 시)
-      webSecurity: false,
+      devTools: isDev,
+      webSecurity: true,
       allowRunningInsecureContent: false,
       preload: path.join(__dirname, 'preload.js')
     }
@@ -304,16 +352,7 @@ const createWindow = () => {
   const startUrl = startUrlEnv || fallbackUrl;
   let attemptedFallback = false;
   const hasRendererFile = fsSync.existsSync(rendererFile);
-  // Bundle-aware Python path (portable MSI/zip 배포 시 venv 포함 가정)
-  if (!process.env.PYTHON_BIN) {
-    const bundledPyWin = path.join(process.resourcesPath || '', 'venv', 'Scripts', 'python.exe');
-    const bundledPyNix = path.join(process.resourcesPath || '', 'venv', 'bin', 'python3');
-    if (fsSync.existsSync(bundledPyWin)) {
-      process.env.PYTHON_BIN = bundledPyWin;
-    } else if (fsSync.existsSync(bundledPyNix)) {
-      process.env.PYTHON_BIN = bundledPyNix;
-    }
-  }
+  // PYTHON_BIN is detected at startup (top of file) before startPythonServer() is called.
 
   const writeLog = async (msg) => {
     try {
@@ -411,6 +450,24 @@ const createWindow = () => {
     reloadOnError('did-fail-load', `${code}:${desc}`);
   });
   win.webContents.on('unresponsive', () => reloadOnError('unresponsive', ''));
+
+  // Security: prevent renderer from navigating to external URLs
+  win.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const parsed = new URL(navigationUrl);
+      const isLocal =
+        parsed.protocol === 'file:' ||
+        parsed.protocol === 'groundview-file:' ||
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1';
+      if (!isLocal) event.preventDefault();
+    } catch {
+      event.preventDefault();
+    }
+  });
+  // Security: block renderer from opening new browser windows
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     writeLog(`[renderer-console] level=${level} source=${sourceId}:${line} msg=${message}`);
   });
@@ -545,6 +602,16 @@ const writeSettingsAtomic = async (data) => {
 };
 
 const resolvePythonBin = () => {
+  // Fast-path: if PYTHON_BIN points to the bundled python-bundle, trust it
+  // unconditionally — don't run spawnSync version check, which fails in APPX
+  // sandbox because WindowsApps paths aren't executable via spawnSync at this
+  // stage (the APPX identity restriction).  The bundled python.exe is always
+  // 3.10, so the version check is redundant.
+  const envBin = process.env.PYTHON_BIN;
+  if (envBin && envBin.includes('python-bundle') && fsSync.existsSync(envBin)) {
+    return { cmd: envBin, prefixArgs: [] };
+  }
+
   const candidates = [];
   const seen = new Set();
   const add = (cmd, prefixArgs = []) => {
@@ -564,6 +631,8 @@ const resolvePythonBin = () => {
   const binNames = process.platform === 'win32' ? ['python.exe', 'python'] : ['python3', 'python'];
   const bundledPy = process.platform === 'win32' ? 'python.exe' : 'bin/python3';
   const bundledCandidates = [
+    // Primary: extraResources 'resources/**/*' maps to {resourcesPath}/resources/python-bundle/
+    process.resourcesPath && path.join(process.resourcesPath, 'resources', 'python-bundle', bundledPy),
     process.resourcesPath && path.join(process.resourcesPath, 'third_party', 'python', bundledPy),
     process.resourcesPath && path.join(process.resourcesPath, 'python', bundledPy),
     path.join(__dirname, '..', 'third_party', 'python', bundledPy)
@@ -664,7 +733,18 @@ const resolvePythonBin = () => {
 // Check and install Python dependencies
 const ensurePythonDependencies = async (python, writeLog) => {
   await writeLog('Checking Python dependencies...');
-  
+
+  // If using the bundled python-bundle, all packages are pre-installed — skip pip entirely.
+  // Runtime pip install is not permitted in Windows Store packages (Policy 10.8.7).
+  // Check the ACTUAL python cmd being used (not just PYTHON_BIN env var), so a fallback
+  // to system 'py -3' doesn't incorrectly skip the dependency check.
+  const isBundledPython =
+    python.cmd && python.cmd.includes('python-bundle');
+  if (isBundledPython) {
+    await writeLog('Using bundled Python — skipping dependency check');
+    return { ok: true };
+  }
+
   // Find requirements.txt
   const packedReqs = path.join(process.resourcesPath || '', 'requirements.txt');
   const devReqs = path.join(__dirname, '../requirements.txt');
@@ -790,13 +870,29 @@ const startPythonServer = async () => {
   const port = process.env.MODEL_PORT || '5005';
   const { key: geminiKey, model: geminiModel } = loadGeminiEnv();
 
+  // Build PYTHONPATH: include backend dir (for settings_manager/webview_ocr) and
+  // bundled site-packages as explicit fallback in case .pth file isn't processed
+  // correctly in the MSIX sandbox environment.
+  const pythonPathParts = [path.dirname(scriptPath)];
+  if (python.cmd && python.cmd.includes('python-bundle')) {
+    const bundleDir = path.dirname(python.cmd);
+    pythonPathParts.push(
+      path.join(bundleDir, 'Lib', 'site-packages'),
+      path.join(bundleDir, 'Lib'),
+      bundleDir
+    );
+  }
+  const pythonPath = pythonPathParts.join(path.delimiter);
+
   const env = {
     ...process.env,
     PYTHONIOENCODING: 'utf-8',
+    PYTHONNOUSERSITE: '1',  // Don't load user site-packages (prevents host env pollution)
     MODEL_PORT: port,
-    GROUNDVIEW_SETTINGS_DIR: effectiveUserDataPath, // Ensure settings path is passed to Python backend
+    GROUNDVIEW_SETTINGS_DIR: effectiveUserDataPath,
     GEMINI_API_KEY: geminiKey || process.env.GEMINI_API_KEY,
-    GEMINI_MODEL: geminiModel || process.env.GEMINI_MODEL
+    GEMINI_MODEL: geminiModel || process.env.GEMINI_MODEL,
+    PYTHONPATH: pythonPath
   };
 
   const args = [...(python.prefixArgs || []), scriptPath];
@@ -806,12 +902,16 @@ const startPythonServer = async () => {
 
   return new Promise((resolve) => {
     try {
+      // MSIX: process.cwd() points to the read-only WindowsApps install folder.
+      // Use the script directory (resources/backend/) as cwd so Python relative imports work,
+      // and ensure writes go through GROUNDVIEW_SETTINGS_DIR (userData) instead.
       backendProcess = spawn(python.cmd, args, {
         windowsHide: true,
         env,
-        cwd: process.cwd()
+        cwd: path.dirname(scriptPath)
       });
 
+      let serverExitCode = null;
       backendProcess.stdout.on('data', (d) => {
         const msg = d.toString().trim();
         if (msg) writeServerLog(`STDOUT: ${msg}`);
@@ -824,19 +924,32 @@ const startPythonServer = async () => {
 
       backendProcess.on('error', (err) => {
         writeServerLog(`ERROR: ${err.message}`);
+        serverExitCode = -1;
       });
 
       backendProcess.on('close', (code) => {
         writeServerLog(`Process exited with code ${code}`);
+        serverExitCode = code ?? -1;
         backendProcess = null;
       });
 
       // Wait for server to be ready (check if port is listening)
       let attempts = 0;
-      const maxAttempts = 60; // Increased from 30 to 60 for slow systems
-      const checkInterval = 1000; // Increased from 500ms to 1s
+      const maxAttempts = 30;
+      const checkInterval = 1000;
+      let resolved = false;
 
       const checkServer = () => {
+        if (resolved) return;
+
+        // Fail fast if the process already exited
+        if (serverExitCode !== null) {
+          resolved = true;
+          writeServerLog(`Server process exited (code ${serverExitCode}) before becoming ready`);
+          resolve({ ok: false, error: `Python 프로세스가 시작 직후 종료되었습니다 (code ${serverExitCode}).\n\n로그 파일을 확인하세요: ${logPath}` });
+          return;
+        }
+
         const req = http.request(
           {
             hostname: '127.0.0.1',
@@ -846,7 +959,9 @@ const startPythonServer = async () => {
             timeout: 1000
           },
           (res) => {
+            if (resolved) return;
             if (res.statusCode === 200 || res.statusCode === 404) {
+              resolved = true;
               writeServerLog('Server is ready!');
               resolve({ ok: true });
             } else {
@@ -856,20 +971,21 @@ const startPythonServer = async () => {
         );
 
         req.on('error', () => {
-          retryCheck();
+          if (!resolved) retryCheck();
         });
 
         req.end();
       };
 
       const retryCheck = () => {
+        if (resolved) return;
         attempts++;
         if (attempts < maxAttempts) {
           setTimeout(checkServer, checkInterval);
         } else {
-          writeServerLog(`ERROR: Server failed to start after ${maxAttempts} attempts (${maxAttempts * checkInterval / 1000}s)`);
-          writeServerLog(`Port ${port} is not responding to health checks`);
-          resolve({ ok: false, error: `백엔드 서버가 ${maxAttempts * checkInterval / 1000}초 내에 응답하지 않습니다.\n\n로그 파일을 확인하세요: ${logPath}` });
+          resolved = true;
+          writeServerLog(`ERROR: Server not ready after ${maxAttempts}s`);
+          resolve({ ok: false, error: `백엔드 서버가 ${maxAttempts}초 내에 응답하지 않습니다.\n로그: ${logPath}` });
         }
       };
 
@@ -883,58 +999,146 @@ const startPythonServer = async () => {
 };
 
 async function scanAdbPaths() {
-  const candidates = [
-    process.env.LOCALAPPDATA &&
-      path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    process.env.USERPROFILE &&
-      path.join(process.env.USERPROFILE, 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    'adb' // rely on PATH
-  ].filter(Boolean);
-  // Add `where adb` results (Windows)
+  const candidates = [];
+
+  // 1) where / which (PATH 우선)
   if (process.platform === 'win32') {
     try {
-      const whereOut = execSync('where adb', { encoding: 'utf8', windowsHide: true });
-      const lines = whereOut
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      candidates.push(...lines);
-    } catch {
-      // ignore
-    }
+      const out = execSync('where adb', { encoding: 'utf8', windowsHide: true });
+      out.split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && l.toLowerCase().endsWith('.exe')) // Windows: .exe만 허용
+        .forEach(p => candidates.push(p));
+    } catch { /* not in PATH */ }
+  } else {
+    try {
+      const out = execSync('which adb', { encoding: 'utf8' });
+      out.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(p => candidates.push(p));
+    } catch { /* not in PATH */ }
   }
+
+  // 2) Android Studio / SDK Manager 기본 설치 경로 (Windows)
+  if (process.platform === 'win32') {
+    const bases = [
+      process.env.LOCALAPPDATA,
+      process.env.USERPROFILE && path.join(process.env.USERPROFILE, 'AppData', 'Local'),
+      process.env.APPDATA && path.join(process.env.APPDATA, '..', 'Local'),
+      'C:\\Users\\' + (process.env.USERNAME || ''),
+    ].filter(Boolean);
+    for (const base of bases) {
+      candidates.push(
+        path.join(base, 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
+        path.join(base, 'Android', 'sdk', 'platform-tools', 'adb.exe'),
+      );
+    }
+    // Android Studio 번들 SDK
+    candidates.push(
+      'C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe',
+      'C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe',
+      path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'Android Studio', 'bin', 'adb.exe'),
+    );
+    // scoop / chocolatey / winget 설치
+    candidates.push(
+      path.join(process.env.USERPROFILE || '', 'scoop', 'apps', 'adb', 'current', 'adb.exe'),
+      'C:\\ProgramData\\chocolatey\\bin\\adb.exe',
+    );
+  }
+
+  // 3) macOS / Linux
+  if (process.platform === 'darwin') {
+    candidates.push(
+      path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'),
+      '/usr/local/bin/adb',
+      '/opt/homebrew/bin/adb',
+    );
+  } else if (process.platform === 'linux') {
+    candidates.push(
+      path.join(os.homedir(), 'Android', 'Sdk', 'platform-tools', 'adb'),
+      '/usr/bin/adb',
+      '/usr/local/bin/adb',
+    );
+  }
+
+  // 중복 제거 후 존재 확인
+  const seen = new Set();
   const found = [];
   for (const c of candidates) {
-    if (!c) continue;
-    if (c === 'adb') {
-      // skip existence check
-      found.push('adb');
-      continue;
-    }
+    if (!c || seen.has(c)) continue;
+    seen.add(c);
     try {
-      fsSync.accessSync(c);
+      fsSync.accessSync(c, fsSync.constants.X_OK);
       found.push(c);
-    } catch {
-      // ignore missing
-    }
+    } catch { /* not found */ }
   }
   return found;
 }
 
-ipcMain.handle('adb:listDevices', async () => adb.listDevices());
+ipcMain.handle('adb:listDevices', async () => {
+  try {
+    return await adb.listDevices();
+  } catch (e) {
+    // ADB binary not found (not yet detected or not installed)
+    // silently return empty list — polling will retry; no error spam
+    if (e.code === 'ENOENT' || (e.message && e.message.includes('ENOENT'))) {
+      // Trigger async re-scan to find ADB path for next poll cycle
+      scanAdbPaths().then(found => {
+        if (found.length > 0) {
+          adb.setAdbPath(found[0]);
+          console.log('[adb] auto-detected after ENOENT:', found[0]);
+        }
+      }).catch(() => {});
+      return [];
+    }
+    throw e;
+  }
+});
 ipcMain.handle('adb:capture', async (_e, id) => adb.capture(id));
 ipcMain.handle('adb:health', async () => adb.health());
 ipcMain.handle('adb:setPath', async (_e, bin) => {
   adb.setAdbPath(bin);
+  // Persist to settings
+  try {
+    await withSettingsLock(async () => {
+      const parsed = await readSettingsWithRetry();
+      const current = parsed.ok && parsed.data ? parsed.data : {};
+      await writeSettingsAtomic({ ...current, adbPath: bin });
+    });
+  } catch { /* ignore */ }
   return { ok: true, details: `ADB path set to: ${adb.getAdbPath()}` };
 });
+ipcMain.handle('adb:autoDetect', async () => {
+  const found = await scanAdbPaths();
+  if (found.length > 0) {
+    adb.setAdbPath(found[0]);
+    try {
+      await withSettingsLock(async () => {
+        const parsed = await readSettingsWithRetry();
+        const current = parsed.ok && parsed.data ? parsed.data : {};
+        await writeSettingsAtomic({ ...current, adbPath: found[0] });
+      });
+    } catch { /* ignore */ }
+    return { ok: true, path: found[0], all: found };
+  }
+  return { ok: false, all: [] };
+});
+ipcMain.handle('adb:getPath', () => adb.getAdbPath());
 ipcMain.handle('adb:scan', async () => scanAdbPaths());
 ipcMain.handle('ios:listDevices', async () => wda.listDevices());
 ipcMain.handle('ios:capture', async (_e, id) => wda.capture(id));
 ipcMain.handle('ios:health', async () => wda.health());
 ipcMain.handle('fs:readText', async (_e, filePath) => {
   try {
-    const data = await fs.readFile(filePath, 'utf8');
+    const resolved = path.resolve(filePath);
+    const tmpDir = path.resolve(os.tmpdir());
+    const userDir = path.resolve(app.getPath('userData'));
+    // Security: only allow reads from temp and userData directories
+    const isAllowed =
+      resolved.startsWith(tmpDir + path.sep) ||
+      resolved.startsWith(userDir + path.sep);
+    if (!isAllowed) {
+      return { ok: false, error: 'Access denied: path outside allowed directories' };
+    }
+    const data = await fs.readFile(resolved, 'utf8');
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -1100,6 +1304,10 @@ ipcMain.handle('dump:pick', async () => {
 ipcMain.handle('external:open', async (_e, url) => {
   if (!url) return { ok: false, error: 'no url' };
   try {
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: 'Only https:// and http:// URLs are allowed' };
+    }
     await shell.openExternal(url);
     return { ok: true };
   } catch (e) {
@@ -1238,40 +1446,54 @@ ipcMain.handle('webview:ocr', async (_e, imagePath, opts) => {
 // See: POST /api/locator/gemini in backend/server.py
 
 app.whenReady().then(() => {
+  // Secure file protocol: serves screenshot/image files only from tmpdir or userData.
+  // This replaces webSecurity:false + file:// approach, restricting access to allowed dirs only.
+  protocol.handle('groundview-file', async (request) => {
+    try {
+      const url = new URL(request.url);
+      let filePath = decodeURIComponent(url.pathname);
+      // Windows: /C:/Users/... → C:/Users/...
+      if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(filePath)) {
+        filePath = filePath.slice(1);
+      }
+      filePath = filePath.replace(/\//g, path.sep);
+      const resolved = path.resolve(filePath);
+      const tmpDir = path.resolve(os.tmpdir());
+      const userDir = path.resolve(effectiveUserDataPath);
+      // Windows: case-insensitive path comparison
+      const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+      const isAllowed =
+        norm(resolved).startsWith(norm(tmpDir) + path.sep) ||
+        norm(resolved).startsWith(norm(userDir) + path.sep);
+      if (!isAllowed) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      // Use fs.readFile for reliable file serving (avoids net.fetch quirks in packaged app)
+      const data = await fs.readFile(resolved);
+      const ext = path.extname(resolved).toLowerCase();
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }[ext] || 'application/octet-stream';
+      return new Response(data, { status: 200, headers: { 'Content-Type': mime } });
+    } catch {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+
   cleanChromiumData()
     .catch(() => {})
     .finally(async () => {
-      // Start backend server first
-      const serverResult = await startPythonServer();
-      if (!serverResult.ok) {
-        console.error('Failed to start backend server:', serverResult.error);
-        // Show error dialog with helpful information
-        const { dialog } = require('electron');
-        const errorMsg = serverResult.error || '알 수 없는 오류';
-        const logPath = logFile();
-        
-        dialog.showMessageBox({
-          type: 'error',
-          title: 'Backend Server Error',
-          message: '백엔드 서버를 시작할 수 없습니다',
-          detail: `${errorMsg}\n\n로그 파일: ${logPath}`,
-          buttons: ['로그 파일 열기', '계속 진행', '종료'],
-          defaultId: 1,
-          cancelId: 1
-        }).then((result) => {
-          if (result.response === 0) {
-            // Open log file
-            const { shell } = require('electron');
-            shell.openPath(logPath);
-          } else if (result.response === 2) {
-            // Exit
-            app.quit();
-          }
-        });
-      }
-      
-      // Create window regardless (UI can still show helpful error)
+      // Create window immediately so UI appears right away
       createWindow();
+
+      // Start backend server in background — non-blocking
+      startPythonServer().then((serverResult) => {
+        if (!serverResult.ok) {
+          // Log error silently; UI handles graceful degradation
+          const logPath = logFile();
+          fs.appendFile(logPath, `[server-start-failed] ${serverResult.error || 'unknown'}\n`, 'utf8').catch(() => {});
+        }
+      }).catch((err) => {
+        fs.appendFile(logFile(), `[server-start-exception] ${err?.message || err}\n`, 'utf8').catch(() => {});
+      });
     });
 
   app.on('activate', () => {

@@ -3,6 +3,38 @@ Lightweight Python backend stub for model/OCR services.
 Provides a /healthz endpoint; extend with inference routes later.
 """
 
+import sys
+import os
+
+# ── Critical path fix ────────────────────────────────────────────────────────
+# Python embeddable packages use a ._pth file that FULLY IGNORES the PYTHONPATH
+# environment variable (documented CPython behavior on Windows).  The main
+# process sets PYTHONPATH to include this backend/ directory, but it is silently
+# dropped.  We must add the directory at runtime via sys.path so that the
+# sibling modules (settings_manager, webview_ocr) can be imported.
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Diagnostic: log sys.path at startup to help diagnose import failures
+_startup_path_logged = False
+try:
+    import pathlib
+    _log_dir = os.environ.get("GROUNDVIEW_SETTINGS_DIR", "")
+    if _log_dir:
+        _log_file = pathlib.Path(_log_dir) / "server_startup.log"
+        pathlib.Path(_log_dir).mkdir(parents=True, exist_ok=True)
+        with open(_log_file, "w", encoding="utf-8") as _f:
+            _f.write(f"Python: {sys.version}\n")
+            _f.write(f"Executable: {sys.executable}\n")
+            _f.write(f"sys.path:\n")
+            for _p in sys.path:
+                _f.write(f"  {_p}\n")
+        _startup_path_logged = True
+except Exception:
+    pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,12 +48,14 @@ from webview_ocr import run_gemini
 app = FastAPI(title="GroundView Model Backend")
 
 # Enable CORS for Electron renderer
+# Origins: 'null' covers file:// renderer (production), localhost:3000 covers dev server.
+# allow_credentials is False; wildcard+credentials combination would be a security vulnerability.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in dev mode
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["null", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 START_TIME = time.time()
@@ -507,8 +541,25 @@ def gemini_ocr(request: GeminiOcrRequest):
 
 
 if __name__ == "__main__":
-    # Dev-only entrypoint; use uvicorn in production.
     import uvicorn
+    import socket
 
     port = int(os.environ.get("MODEL_PORT", "5005"))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+
+    # Verify the port is available before starting
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+    except OSError as e:
+        print(f"[server] ERROR: Port {port} is not available: {e}", flush=True)
+        raise SystemExit(1)
+
+    print(f"[server] Starting on 127.0.0.1:{port}", flush=True)
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        access_log=False,
+    )

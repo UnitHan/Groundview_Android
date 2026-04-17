@@ -28,7 +28,7 @@ type State = {
   appiumVersion?: '1' | '2' | '3';
   selectedNodeId?: string;
   selectedBounds?: string;
-  uiPhase: 'welcome' | 'devices' | 'analyze';
+  uiPhase: 'devices' | 'analyze';
   metaDeviceId?: string;
   metaScreenSize?: string;
   metaTimestamp?: string;
@@ -102,7 +102,7 @@ const initialState: State = {
   devices: [],
   logs: [],
   appiumVersion: '2',
-  uiPhase: 'welcome',
+  uiPhase: 'devices',
   geminiApiKey: undefined,
   geminiModel: undefined
 };
@@ -111,8 +111,13 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'setPlatform':
       return { ...state, platform: action.platform, selectedDevice: undefined, devices: [] };
-    case 'setDevices':
-      return { ...state, devices: action.devices, selectedDevice: undefined };
+    case 'setDevices': {
+      // Preserve selectedDevice if it still exists in the new list
+      const stillPresent = state.selectedDevice
+        ? action.devices.find((d) => d.id === state.selectedDevice!.id) ?? undefined
+        : undefined;
+      return { ...state, devices: action.devices, selectedDevice: stillPresent };
+    }
     case 'selectDevice': {
       const device = state.devices.find((d) => d.id === action.id);
       return { ...state, selectedDevice: device };
@@ -253,15 +258,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const loadDevices = React.useCallback(async () => {
-    dispatch({ type: 'status', message: 'Loading devices...' });
-    dispatch({ type: 'log', message: '[info] Loading devices' });
     const svc = pickService();
-    const devices = (await svc.listDevices()) as DeviceInfo[];
-    dispatch({ type: 'setDevices', devices });
-    dispatch({ type: 'status', message: `Found ${devices.length} device(s)` });
-    dispatch({ type: 'log', message: `[info] Found ${devices.length} device(s)` });
-    if (devices.length > 0) {
-      dispatch({ type: 'phase', phase: 'devices' });
+    try {
+      const devices = (await svc.listDevices()) as DeviceInfo[];
+      dispatch({ type: 'setDevices', devices });
+      if (devices.length > 0) {
+        dispatch({ type: 'status', message: `${devices.length}개 기기 연결됨` });
+      }
+    } catch (e) {
+      // Silently ignore if ADB not found / not ready — auto-polling will retry
+      dispatch({ type: 'setDevices', devices: [] });
     }
   }, [state.platform]);
 

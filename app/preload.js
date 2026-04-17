@@ -5,8 +5,10 @@ contextBridge.exposeInMainWorld('groundview', {
     listDevices: () => ipcRenderer.invoke('adb:listDevices'),
     capture: (id) => ipcRenderer.invoke('adb:capture', id),
     health: () => ipcRenderer.invoke('adb:health'),
-    setPath: (bin) => ipcRenderer.invoke('adb:setPath', bin)
-    ,scan: () => ipcRenderer.invoke('adb:scan')
+    setPath: (bin) => ipcRenderer.invoke('adb:setPath', bin),
+    getPath: () => ipcRenderer.invoke('adb:getPath'),
+    scan: () => ipcRenderer.invoke('adb:scan'),
+    autoDetect: () => ipcRenderer.invoke('adb:autoDetect')
   },
   ios: {
     listDevices: () => ipcRenderer.invoke('ios:listDevices'),

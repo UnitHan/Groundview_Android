@@ -8,7 +8,9 @@ declare global {
         capture: (id: string) => Promise<any>;
         health: () => Promise<any>;
         setPath: (bin: string) => Promise<any>;
+        getPath: () => Promise<string | undefined>;
         scan: () => Promise<string[]>;
+        autoDetect: () => Promise<{ ok: boolean; path?: string; all: string[] }>;
       };
       ios: {
         listDevices: () => Promise<any>;

@@ -16,12 +16,14 @@ from webview_ocr import run_gemini
 app = FastAPI(title="GroundView Model Backend")
 
 # Enable CORS for Electron renderer
+# Origins: 'null' covers file:// renderer (production), localhost:3000 covers dev server.
+# allow_credentials is False; wildcard+credentials combination would be a security vulnerability.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in dev mode
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["null", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 START_TIME = time.time()
