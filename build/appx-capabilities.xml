@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  MSIX Custom Capabilities Extension
-  runFullTrust: required for spawning external processes (adb, python backend)
-  This file is referenced by package.json appx.customExtensionsPath
+  NOTE: electron-builder v24 automatically injects runFullTrust capability
+  for Electron MSIX builds. No manual Extensions injection needed.
+  The --no-sandbox / --disable-gpu-sandbox flags in main.js handle
+  the ERROR_PARTIAL_COPY (ReadProcessMemory) issue inside MSIX containers.
 -->
-<Extensions>
-  <rescap:Capability Name="runFullTrust" />
-</Extensions>

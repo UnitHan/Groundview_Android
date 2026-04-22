@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('groundview', {
       }
     }
   },
+  env: {
+    diagnose: () => ipcRenderer.invoke('env:diagnose'),
+    downloadAdb: () => ipcRenderer.invoke('env:downloadAdb')
+  },
   external: {
     open: (url) => ipcRenderer.invoke('external:open', url)
   },

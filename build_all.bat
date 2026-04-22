@@ -125,10 +125,22 @@ if errorlevel 1 (
 :: ============================================================
 call :step_header 3 "NSIS installer build"
 
-:: Kill any running GroundView process so NSIS installer can overwrite files
-taskkill /f /im "GroundView.exe" >nul 2>&1
-taskkill /f /im "groundview.exe" >nul 2>&1
-call :ok "Ensured GroundView is not running before installer build"
+:: Kill any running GroundView / Electron processes (prevents EPERM on locked files)
+taskkill /f /im "GroundView.exe"  >nul 2>&1
+taskkill /f /im "groundview.exe"  >nul 2>&1
+taskkill /f /im "electron.exe"    >nul 2>&1
+call :ok "Ensured GroundView / Electron is not running before installer build"
+
+:: Clean previous dist\electron output (prevents EPERM from stale locked archives)
+if exist "%ROOT%dist\electron" (
+    echo   Cleaning dist\electron ...
+    rd /s /q "%ROOT%dist\electron" >nul 2>&1
+    if exist "%ROOT%dist\electron" (
+        call :warn "Could not fully remove dist\electron — some files may still be locked"
+    ) else (
+        call :ok "dist\electron cleaned"
+    )
+)
 
 :: Verify icon exists (required for NSIS)
 if not exist "%ROOT%icon.ico" (

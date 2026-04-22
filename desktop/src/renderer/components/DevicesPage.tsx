@@ -2,9 +2,56 @@ import React from 'react';
 import { useAppStore } from '../store';
 import { colors, pressableStyle, pressableHandlers } from '../utils/styles';
 import geminiLogo from '/Gemini_logo.png';
+import { EnvSetupModal } from './EnvSetupModal';
+
+// 환경 진단 결과 타입
+interface EnvDiagnosis {
+  adbFound: boolean;
+  readyDevices: string[];
+  unauthorizedDevices: string[];
+  offlineDevices: string[];
+}
+
+type TrafficLight = 'red' | 'yellow' | 'green';
+
+function calcLight(diag: EnvDiagnosis | null, deviceCount: number): TrafficLight {
+  if (deviceCount > 0) return 'green';
+  if (!diag) return 'red';
+  if (!diag.adbFound) return 'red';
+  if (diag.unauthorizedDevices.length > 0 || diag.offlineDevices.length > 0) return 'yellow';
+  return 'yellow'; // ADB 있지만 기기 없음
+}
+
+const LIGHT: Record<TrafficLight, { color: string; label: string }> = {
+  red:    { color: '#ef4444', label: '설정 필요' },
+  yellow: { color: '#f59e0b', label: '일부 미완료' },
+  green:  { color: '#22c55e', label: '정상' },
+};
 
 export const DevicesPage: React.FC = () => {
   const { state, loadDevices, selectDevice, capture } = useAppStore();
+  const [envModalOpen, setEnvModalOpen] = React.useState(false);
+  const [envDiag, setEnvDiag] = React.useState<EnvDiagnosis | null>(null);
+  const autoOpenedRef = React.useRef(false);
+
+  const runDiagnose = React.useCallback(() => {
+    (window as any).groundview?.env?.diagnose?.().then((d: EnvDiagnosis) => {
+      setEnvDiag(d);
+      // ADB가 없으면 최초 1회에 한해 Setup 모달 자동 표시
+      if (!autoOpenedRef.current && !d?.adbFound) {
+        autoOpenedRef.current = true;
+        setEnvModalOpen(true);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // 마운트 시 환경 진단 수행
+  React.useEffect(() => {
+    runDiagnose();
+  }, [runDiagnose]);
+
+  const light = calcLight(envDiag, state.devices.length);
+  const lightCfg = LIGHT[light];
 
   // 마운트 시 즉시 로드 + 3초마다 자동 폴링 (analyze 중엔 폴링 중단)
   React.useEffect(() => {
@@ -27,6 +74,7 @@ export const DevicesPage: React.FC = () => {
 
   return (
     <>
+      {envModalOpen && <EnvSetupModal onClose={() => { setEnvModalOpen(false); runDiagnose(); }} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: colors.textMain }}>GroundView</div>
         <img
@@ -35,48 +83,47 @@ export const DevicesPage: React.FC = () => {
           style={{ height: 40, objectFit: 'contain', marginLeft: 12 }}
         />
       </div>
-      <div style={{ marginBottom: 20, color: colors.textSub }}>Android UI Inspector & Test Automation Locator Tool</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div style={{ color: colors.textSub }}>Android UI Inspector & Test Automation Locator Tool</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* 신호등 버튼 */}
+          <button
+            onClick={() => setEnvModalOpen(true)}
+            title={lightCfg.label}
+            style={{
+              width: 28, height: 28, borderRadius: '50%',
+              background: lightCfg.color,
+              border: `2px solid ${lightCfg.color}cc`,
+              cursor: 'pointer',
+              boxShadow: `0 0 8px ${lightCfg.color}88`,
+              flexShrink: 0,
+              padding: 0,
+              transition: 'box-shadow 120ms ease, transform 120ms ease',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.15)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+          />
+          {/* 환경설정 버튼 */}
+          <button
+            onClick={() => setEnvModalOpen(true)}
+            style={{
+              padding: '6px 14px', borderRadius: 8,
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              color: '#475569',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
+              ...pressableStyle,
+            }}
+            {...pressableHandlers}
+          >
+            ⚙ Setup
+          </button>
+        </div>
+      </div>
       
       <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* ADB FOUND Section */}
-        <div
-          style={{
-            background: colors.cardBlue,
-            border: '1px solid #dbe7ff',
-            borderRadius: 14,
-            padding: 16
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                background: '#4ade80',
-                border: '1px solid #bbf7d0'
-              }}
-            />
-            <div style={{ fontSize: 20, fontWeight: 800, color: colors.textMain }}>ADB FOUND</div>
-          </div>
-          <div style={{ color: colors.textSub, marginBottom: 10 }}>Available Android Debug Bridge Information</div>
-          <div
-            style={{
-              background: 'white',
-              border: '1px solid #dce3f5',
-              borderRadius: 10,
-              padding: 12,
-              color: colors.textMain,
-              fontFamily: 'monospace'
-            }}
-          >
-            $ {state.health?.details?.split('\n')[0] || (state.adbPath ? 'Fetching ADB version...' : 'Set ADB path to fetch version.')}
-            {state.adbPath && (
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>path: {state.adbPath}</div>
-            )}
-          </div>
-        </div>
-
         {/* Connected Devices Section */}
         <div
           style={{

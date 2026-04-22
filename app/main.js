@@ -49,6 +49,15 @@ app.commandLine.appendSwitch('media-cache-dir', cacheDir);
 app.commandLine.appendSwitch('disable-http-cache', '1');
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
+// MSIX/AppX 패키지로 실행될 때 GPU 샌드박스가 컨테이너와 충돌하여
+// ERROR_PARTIAL_COPY (ReadProcessMemory/WriteProcessMemory) 오류가 발생한다.
+// WindowsApps 경로에서 실행 중이면 MSIX 환경으로 판단하고 샌드박스를 비활성화한다.
+const isMsix = (process.execPath || '').toLowerCase().includes('windowsapps');
+if (isMsix) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
+
 // Detect bundled Python EARLY — must run before startPythonServer().
 // createWindow() runs AFTER startPythonServer(), so detection here is critical.
 // extraResources "resources/**/*" → {resourcesPath}/resources/python-bundle/
@@ -1444,6 +1453,179 @@ ipcMain.handle('webview:ocr', async (_e, imagePath, opts) => {
 // Gemini 기반 Appium 로케이터/코드 제안
 // Gemini locator generation is now handled by backend API
 // See: POST /api/locator/gemini in backend/server.py
+
+// ─── 환경 진단 ─────────────────────────────────────────────────────────────
+ipcMain.handle('env:diagnose', async () => {
+  const result = {
+    adbFound: false,
+    adbPath: null,
+    adbVersion: null,
+    readyDevices: [],
+    unauthorizedDevices: [],
+    offlineDevices: [],
+    androidStudioFound: false,
+    platformToolsUrl: process.platform === 'darwin'
+      ? 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip'
+      : process.platform === 'linux'
+      ? 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
+      : 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
+  };
+
+  // ADB 경로 검색
+  const found = await scanAdbPaths();
+  const currentAdb = adb.getAdbPath();
+  // currentAdb가 실제 존재하면 우선 사용
+  const effectiveAdb = (currentAdb && currentAdb !== 'adb' && found.includes(currentAdb))
+    ? currentAdb
+    : found[0] || null;
+
+  if (effectiveAdb) {
+    result.adbFound = true;
+    result.adbPath = effectiveAdb;
+
+    // ADB 버전 확인
+    try {
+      const ver = await new Promise((resolve, reject) => {
+        const ps = spawn(effectiveAdb, ['version'], { windowsHide: true });
+        let out = '';
+        ps.stdout.on('data', d => { out += d.toString(); });
+        ps.stderr.on('data', d => { out += d.toString(); });
+        ps.on('error', reject);
+        ps.on('close', () => resolve(out.trim()));
+      });
+      result.adbVersion = ver.split('\n')[0] || ver;
+    } catch { /* ignore */ }
+
+    // adb devices 원본 출력 파싱 (unauthorized 포함)
+    try {
+      await new Promise((resolve, reject) => {
+        const ps = spawn(effectiveAdb, ['start-server'], { windowsHide: true });
+        ps.on('error', () => resolve());
+        ps.on('close', () => resolve());
+        setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 6000);
+      });
+      const raw = await new Promise((resolve, reject) => {
+        const ps = spawn(effectiveAdb, ['devices', '-l'], { windowsHide: true });
+        let out = '';
+        ps.stdout.on('data', d => { out += d.toString(); });
+        ps.stderr.on('data', d => { out += d.toString(); });
+        ps.on('error', reject);
+        ps.on('close', () => resolve(out));
+        setTimeout(() => { try { ps.kill(); } catch {} resolve(out); }, 8000);
+      });
+      const lines = raw.split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('List of devices') && !l.startsWith('*'));
+      for (const line of lines) {
+        const parts = line.split(/\s+/);
+        if (parts.length < 2) continue;
+        const id = parts[0];
+        const status = parts[1];
+        if (status === 'device') result.readyDevices.push(id);
+        else if (status === 'unauthorized') result.unauthorizedDevices.push(id);
+        else if (status === 'offline') result.offlineDevices.push(id);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Android Studio 설치 여부 확인
+  const asCandidates = process.platform === 'win32'
+    ? [
+        path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Android', 'Android Studio'),
+        path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Android', 'Android Studio'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Android Studio'),
+        path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'Android Studio'),
+      ]
+    : [
+        '/Applications/Android Studio.app',
+        path.join(os.homedir(), 'Applications', 'Android Studio.app'),
+      ];
+  result.androidStudioFound = asCandidates.some(p => {
+    try { fsSync.accessSync(p); return true; } catch { return false; }
+  });
+
+  return result;
+});
+
+ipcMain.handle('env:downloadAdb', async () => {
+  const zipUrl = process.platform === 'darwin'
+    ? 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip'
+    : process.platform === 'linux'
+    ? 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
+    : 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip';
+
+  const destDir = path.join(os.homedir(), 'platform-tools');
+  const zipPath = path.join(os.tmpdir(), 'platform-tools.zip');
+
+  try {
+    // 다운로드
+    await new Promise((resolve, reject) => {
+      const file = fsSync.createWriteStream(zipPath);
+      const protocol = zipUrl.startsWith('https') ? https : http;
+      const req = protocol.get(zipUrl, res => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          file.close();
+          // 리다이렉트 처리
+          const redir = res.headers.location;
+          const rdProtocol = redir.startsWith('https') ? https : http;
+          rdProtocol.get(redir, res2 => {
+            res2.pipe(file);
+            file.on('finish', () => { file.close(); resolve(); });
+          }).on('error', reject);
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+      });
+      req.on('error', reject);
+      req.setTimeout(120000, () => { req.destroy(new Error('Download timed out')); });
+    });
+
+    // 압축 해제 (Windows: PowerShell 사용)
+    if (process.platform === 'win32') {
+      await new Promise((resolve, reject) => {
+        const ps = spawn('powershell', [
+          '-NoProfile', '-Command',
+          `Expand-Archive -Path "${zipPath}" -DestinationPath "${path.join(os.homedir())}" -Force`
+        ], { windowsHide: true });
+        ps.on('error', reject);
+        ps.on('close', code => code === 0 ? resolve() : reject(new Error(`unzip failed: ${code}`)));
+        setTimeout(() => { try { ps.kill(); } catch {} reject(new Error('Unzip timed out')); }, 60000);
+      });
+    } else {
+      await new Promise((resolve, reject) => {
+        const ps = spawn('unzip', ['-o', zipPath, '-d', os.homedir()], { windowsHide: true });
+        ps.on('error', reject);
+        ps.on('close', code => code === 0 ? resolve() : reject(new Error(`unzip failed: ${code}`)));
+        setTimeout(() => { try { ps.kill(); } catch {} reject(new Error('Unzip timed out')); }, 60000);
+      });
+    }
+
+    // ADB 경로 설정
+    const adbExe = process.platform === 'win32'
+      ? path.join(destDir, 'adb.exe')
+      : path.join(destDir, 'adb');
+
+    if (fsSync.existsSync(adbExe)) {
+      if (process.platform !== 'win32') {
+        try { fsSync.chmodSync(adbExe, 0o755); } catch { /* ignore */ }
+      }
+      adb.setAdbPath(adbExe);
+      // 설정에 저장
+      try {
+        await withSettingsLock(async () => {
+          const parsed = await readSettingsWithRetry();
+          const current = parsed.ok && parsed.data ? parsed.data : {};
+          await writeSettingsAtomic({ ...current, adbPath: adbExe });
+        });
+      } catch { /* ignore */ }
+      return { ok: true, adbPath: adbExe };
+    }
+    return { ok: false, error: 'ADB 실행 파일을 찾을 수 없습니다.' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 app.whenReady().then(() => {
   // Secure file protocol: serves screenshot/image files only from tmpdir or userData.

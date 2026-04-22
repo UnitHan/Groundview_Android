@@ -18,7 +18,7 @@ const App: React.FC = () => {
       return false;
     }
   });
-  const appVersion = '0.0.5';
+  const appVersion = '0.0.6';
 
   React.useEffect(() => {
     const off = window.groundview?.ui?.onInfo?.(() => setInfoOpen(true));

@@ -3,7 +3,7 @@
 > **AI 기반 모바일 테스트 자동화 도우미**  
 > Appium 테스트를 위한 스마트 로케이터 생성, 오프라인 분석, Gemini AI 연동
 
-[![Version](https://img.shields.io/badge/version-0.0.5-blue.svg)](https://github.com/UnitHan/Groundview_Android)
+[![Version](https://img.shields.io/badge/version-0.0.6-blue.svg)](https://github.com/UnitHan/Groundview_Android)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)](https://github.com/UnitHan/Groundview_Android)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
