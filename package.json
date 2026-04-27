@@ -1,6 +1,6 @@
 {
   "name": "groundview",
-  "version": "0.0.7",
+  "version": "0.0.9",
   "private": true,
   "description": "GroundView desktop app (ADB/WDA capture, OCR, locator generator).",
   "author": {
@@ -34,6 +34,11 @@
         ]
       },
       "requirements.txt",
+      {
+        "from": "resources/adb",
+        "to": "resources/adb",
+        "filter": ["**/*"]
+      },
       {
         "from": "resources",
         "to": "resources",
@@ -126,9 +131,10 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && node scripts/bundle-python.js && electron-builder --win",
     "dist:win:norebuild": "electron-builder --win nsis",
-    "dist:msix": "npm run build && node scripts/bundle-python.js && electron-builder --win appx",
+    "dist:msix": "npm run build && node scripts/bundle-python.js && node scripts/bundle-adb.js && electron-builder --win appx",
     "dist:msix:norebuild": "electron-builder --win appx",
     "bundle-python": "node scripts/bundle-python.js",
+    "bundle-adb": "node scripts/bundle-adb.js",
     "dist:verbose": "npm run build && cross-env DEBUG=electron-builder electron-builder",
     "check:python": "python -c \"import sys; print(sys.version)\"",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",

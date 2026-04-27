@@ -38,9 +38,24 @@ function wrapSpawnError(err, cmd, args) {
   return wrapped;
 }
 
+function adbSpawnOptions() {
+  if (!adbBin || adbBin === 'adb' || !path.isAbsolute(adbBin)) {
+    return { windowsHide: true };
+  }
+  const adbDir = path.dirname(adbBin);
+  return {
+    windowsHide: true,
+    cwd: adbDir,
+    env: {
+      ...process.env,
+      PATH: `${adbDir}${path.delimiter}${process.env.PATH || ''}`
+    }
+  };
+}
+
 function runSpawn(cmd, args, { timeout = 12000 } = {}) {
   return new Promise((resolve, reject) => {
-    const ps = spawn(cmd, args, { windowsHide: true });
+    const ps = cmd === adbBin ? spawn(cmd, args, adbSpawnOptions()) : spawn(cmd, args, { windowsHide: true });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -89,7 +104,7 @@ function runAdb(args, { timeout = 12000 } = {}) {
 function runAdbToFile(args, filePath, { timeout = 20000 } = {}) {
   if (!adbBin) return Promise.reject(new Error('ADB path not set'));
   return new Promise((resolve, reject) => {
-    const ps = spawn(adbBin, args, { windowsHide: true });
+    const ps = spawn(adbBin, args, adbSpawnOptions());
     const out = fs.createWriteStream(filePath);
     let stderr = '';
     let exited = false;

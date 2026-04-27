@@ -278,26 +278,78 @@ const preloadGeminiFromSettings = () => {
 };
 preloadGeminiFromSettings();
 
+const writeDiagnosticLog = (message) => {
+  try {
+    fsSync.appendFileSync(
+      path.join(effectiveUserDataPath, 'groundview.log'),
+      `[${new Date().toISOString()}] ${message}\n`,
+      'utf8'
+    );
+  } catch {
+    /* ignore */
+  }
+};
+
+const compactLogText = (value, max = 1200) => {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+};
+
+const compactJson = (value, max = 1200) => {
+  try {
+    return compactLogText(JSON.stringify(value), max);
+  } catch {
+    return compactLogText(value, max);
+  }
+};
+
+const writeAdbLog = (message) => writeDiagnosticLog(`[adb] ${message}`);
+
 // Restore saved ADB path and auto-detect if not saved
 const preloadAdbFromSettings = () => {
   try {
+    // MSIX: 번들 adb를 최우선으로 확인.
+    // user AppData 경로의 DLL 로딩 실패(0xC0000135)를 우회한다.
+    if (isMsix && process.resourcesPath) {
+      const bundledAdb = path.join(process.resourcesPath, 'resources', 'adb', 'adb.exe');
+      if (fsSync.existsSync(bundledAdb)) {
+        adb.setAdbPath(bundledAdb);
+        writeAdbLog(`preload using bundled adb (MSIX) path=${bundledAdb}`);
+        return;
+      }
+      writeAdbLog(`preload bundled adb not found path=${bundledAdb}, falling through to saved/scan`);
+    }
+
     const settingsPath = path.join(effectiveUserDataPath, 'settings.json');
+    writeAdbLog(`preload settings=${settingsPath} exists=${fsSync.existsSync(settingsPath)}`);
     if (fsSync.existsSync(settingsPath)) {
       const raw = fsSync.readFileSync(settingsPath, 'utf8');
       const parsed = parseSettingsJsonSync(raw);
       if (parsed.ok && parsed.data?.adbPath) {
         try {
-          fsSync.accessSync(parsed.data.adbPath, fsSync.constants.X_OK);
+          // F_OK only: X_OK is unreliable for external executables under MSIX.
+          fsSync.accessSync(parsed.data.adbPath, fsSync.constants.F_OK);
           adb.setAdbPath(parsed.data.adbPath);
+          writeAdbLog(`preload using saved adbPath=${parsed.data.adbPath}`);
           return; // saved path still valid
-        } catch { /* stale path, fall through to auto-detect */ }
+        } catch (e) {
+          writeAdbLog(`preload saved adbPath invalid path=${parsed.data.adbPath} error=${e.message || e}`);
+        }
       }
     }
-  } catch { /* ignore */ }
+  } catch (e) {
+    writeAdbLog(`preload settings read failed error=${e.message || e}`);
+  }
   // Auto-detect on startup (async, best-effort)
   scanAdbPaths().then(found => {
-    if (found.length > 0) adb.setAdbPath(found[0]);
-  }).catch(() => {});
+    writeAdbLog(`preload auto-scan found=${compactJson(found)}`);
+    if (found.length > 0) {
+      adb.setAdbPath(found[0]);
+      writeAdbLog(`preload using auto-detected adbPath=${found[0]}`);
+    }
+  }).catch((e) => {
+    writeAdbLog(`preload auto-scan failed error=${e.message || e}`);
+  });
 };
 preloadAdbFromSettings();
 
@@ -1037,20 +1089,46 @@ async function scanAdbPaths() {
       return false;
     }
   };
+  const adbSpawnSyncOptions = (bin) => {
+    const adbDir = path.dirname(bin);
+    return {
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 5000,
+      cwd: adbDir,
+      env: {
+        ...process.env,
+        PATH: `${adbDir}${path.delimiter}${process.env.PATH || ''}`
+      }
+    };
+  };
   const isValidAdbBinary = (bin) => {
     try {
-      const res = spawnSync(bin, ['version'], {
-        windowsHide: true,
-        encoding: 'utf8',
-        timeout: 5000
-      });
-      if (res.error || res.status !== 0) return false;
+      const res = spawnSync(bin, ['version'], adbSpawnSyncOptions(bin));
+      if (res.error || res.status !== 0) {
+        writeAdbLog(
+          `verify failed path=${bin} status=${res.status} error=${res.error?.message || ''} output=${compactLogText(`${res.stdout || ''}${res.stderr || ''}`)}`
+        );
+        return false;
+      }
       const text = `${res.stdout || ''}${res.stderr || ''}`;
-      return /Android Debug Bridge/i.test(text);
-    } catch {
+      const ok = /Android Debug Bridge/i.test(text);
+      if (!ok) writeAdbLog(`verify rejected path=${bin} output=${compactLogText(text)}`);
+      return ok;
+    } catch (e) {
+      writeAdbLog(`verify exception path=${bin} error=${e.message || e}`);
       return false;
     }
   };
+
+  // 0) MSIX 번들 adb (최우선)
+  // MSIX(Desktop AppX Container) 컨텍스트에서 user AppData 경로의 DLL을
+  // 로드할 수 없는 문제(0xC0000135)를 우회하기 위해 패키지 내부에 번들된
+  // adb를 최우선으로 사용한다.
+  // scripts/bundle-adb.js 로 복사되고, extraResources로 패키지에 포함된다.
+  if (isMsix && process.resourcesPath) {
+    addCandidate(path.join(process.resourcesPath, 'resources', 'adb', 'adb.exe'));
+  }
 
   // 1) where / which (PATH fallback)
   if (process.platform === 'win32') {
@@ -1097,6 +1175,8 @@ async function scanAdbPaths() {
     }
 
     addCandidate(path.join(process.resourcesPath || '', 'resources', 'platform-tools', 'adb.exe'));
+    addCandidate(path.join(home || os.homedir(), 'platform-tools', 'adb.exe'));
+    addCandidate('C:\\platform-tools\\adb.exe');
     addCandidate('C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe');
     addCandidate('C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe');
     addCandidate(path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'Android Studio', 'bin', 'adb.exe'));
@@ -1129,13 +1209,22 @@ async function scanAdbPaths() {
 
   // Prefer real adb binaries (reject stale shims/aliases when possible).
   const verified = existing.filter((bin) => isValidAdbBinary(bin));
-  return verified.length > 0 ? verified : existing;
+  const result = verified.length > 0 ? verified : existing;
+  writeAdbLog(
+    `scan isMsix=${isMsix} candidates=${candidates.length} existing=${existing.length} verified=${verified.length} result=${compactJson(result)}`
+  );
+  return result;
 }
 
 ipcMain.handle('adb:listDevices', async () => {
+  const currentAdb = adb.getAdbPath();
+  writeAdbLog(`listDevices start adbPath=${currentAdb}`);
   try {
-    return await adb.listDevices();
+    const devices = await adb.listDevices();
+    writeAdbLog(`listDevices ok count=${devices.length} devices=${compactJson(devices)}`);
+    return devices;
   } catch (e) {
+    writeAdbLog(`listDevices error adbPath=${currentAdb} code=${e.code || ''} message=${e.message || e}`);
     // ADB binary not found (not yet detected or not installed)
     // silently return empty list — polling will retry; no error spam
     if (e.code === 'ENOENT' || (e.message && e.message.includes('ENOENT'))) {
@@ -1143,17 +1232,37 @@ ipcMain.handle('adb:listDevices', async () => {
       scanAdbPaths().then(found => {
         if (found.length > 0) {
           adb.setAdbPath(found[0]);
-          console.log('[adb] auto-detected after ENOENT:', found[0]);
+          writeAdbLog(`listDevices auto-detected after ENOENT adbPath=${found[0]}`);
         }
-      }).catch(() => {});
+      }).catch((scanErr) => {
+        writeAdbLog(`listDevices auto-scan after ENOENT failed error=${scanErr.message || scanErr}`);
+      });
       return [];
     }
     throw e;
   }
 });
-ipcMain.handle('adb:capture', async (_e, id) => adb.capture(id));
-ipcMain.handle('adb:health', async () => adb.health());
+ipcMain.handle('adb:capture', async (_e, id) => {
+  writeAdbLog(`capture start deviceId=${id} adbPath=${adb.getAdbPath()}`);
+  try {
+    const result = await adb.capture(id);
+    writeAdbLog(
+      `capture result deviceId=${id} screenshot=${result?.screenshotPath || ''} xml=${result?.xmlPath || result?.xmlPathUncompressed || result?.xmlPathCompressed || ''} method=${result?.captureMethod || ''} error=${result?.error || ''}`
+    );
+    return result;
+  } catch (e) {
+    writeAdbLog(`capture error deviceId=${id} message=${e.message || e}`);
+    throw e;
+  }
+});
+ipcMain.handle('adb:health', async () => {
+  writeAdbLog(`health start adbPath=${adb.getAdbPath()}`);
+  const result = await adb.health();
+  writeAdbLog(`health result=${compactJson(result)}`);
+  return result;
+});
 ipcMain.handle('adb:setPath', async (_e, bin) => {
+  writeAdbLog(`setPath requested path=${bin}`);
   adb.setAdbPath(bin);
   // Persist to settings
   try {
@@ -1162,11 +1271,16 @@ ipcMain.handle('adb:setPath', async (_e, bin) => {
       const current = parsed.ok && parsed.data ? parsed.data : {};
       await writeSettingsAtomic({ ...current, adbPath: bin });
     });
-  } catch { /* ignore */ }
+    writeAdbLog(`setPath persisted path=${bin}`);
+  } catch (e) {
+    writeAdbLog(`setPath persist failed path=${bin} error=${e.message || e}`);
+  }
   return { ok: true, details: `ADB path set to: ${adb.getAdbPath()}` };
 });
 ipcMain.handle('adb:autoDetect', async () => {
+  writeAdbLog('autoDetect start');
   const found = await scanAdbPaths();
+  writeAdbLog(`autoDetect found=${compactJson(found)}`);
   if (found.length > 0) {
     adb.setAdbPath(found[0]);
     try {
@@ -1175,13 +1289,21 @@ ipcMain.handle('adb:autoDetect', async () => {
         const current = parsed.ok && parsed.data ? parsed.data : {};
         await writeSettingsAtomic({ ...current, adbPath: found[0] });
       });
-    } catch { /* ignore */ }
+      writeAdbLog(`autoDetect persisted path=${found[0]}`);
+    } catch (e) {
+      writeAdbLog(`autoDetect persist failed path=${found[0]} error=${e.message || e}`);
+    }
     return { ok: true, path: found[0], all: found };
   }
   return { ok: false, all: [] };
 });
 ipcMain.handle('adb:getPath', () => adb.getAdbPath());
-ipcMain.handle('adb:scan', async () => scanAdbPaths());
+ipcMain.handle('adb:scan', async () => {
+  writeAdbLog('scan ipc start');
+  const found = await scanAdbPaths();
+  writeAdbLog(`scan ipc result=${compactJson(found)}`);
+  return found;
+});
 ipcMain.handle('ios:listDevices', async () => wda.listDevices());
 ipcMain.handle('ios:capture', async (_e, id) => wda.capture(id));
 ipcMain.handle('ios:health', async () => wda.health());
@@ -1506,6 +1628,7 @@ ipcMain.handle('webview:ocr', async (_e, imagePath, opts) => {
 
 // ─── 환경 진단 ─────────────────────────────────────────────────────────────
 ipcMain.handle('env:diagnose', async () => {
+  writeAdbLog(`diagnose start platform=${process.platform} isMsix=${isMsix} currentAdb=${adb.getAdbPath()}`);
   const result = {
     adbFound: false,
     adbPath: null,
@@ -1528,6 +1651,7 @@ ipcMain.handle('env:diagnose', async () => {
   const effectiveAdb = (currentAdb && currentAdb !== 'adb' && found.includes(currentAdb))
     ? currentAdb
     : found[0] || null;
+  writeAdbLog(`diagnose scan found=${compactJson(found)} current=${currentAdb} effective=${effectiveAdb || ''}`);
 
   if (effectiveAdb) {
     result.adbFound = true;
@@ -1536,7 +1660,12 @@ ipcMain.handle('env:diagnose', async () => {
     // ADB 버전 확인
     try {
       const ver = await new Promise((resolve, reject) => {
-        const ps = spawn(effectiveAdb, ['version'], { windowsHide: true });
+        const adbDir = path.dirname(effectiveAdb);
+        const ps = spawn(effectiveAdb, ['version'], {
+          windowsHide: true,
+          cwd: adbDir,
+          env: { ...process.env, PATH: `${adbDir}${path.delimiter}${process.env.PATH || ''}` }
+        });
         let out = '';
         ps.stdout.on('data', d => { out += d.toString(); });
         ps.stderr.on('data', d => { out += d.toString(); });
@@ -1544,18 +1673,40 @@ ipcMain.handle('env:diagnose', async () => {
         ps.on('close', () => resolve(out.trim()));
       });
       result.adbVersion = ver.split('\n')[0] || ver;
-    } catch { /* ignore */ }
+      writeAdbLog(`diagnose version=${compactLogText(result.adbVersion)}`);
+    } catch (e) {
+      writeAdbLog(`diagnose version failed path=${effectiveAdb} error=${e.message || e}`);
+    }
 
     // adb devices 원본 출력 파싱 (unauthorized 포함)
     try {
-      await new Promise((resolve, reject) => {
-        const ps = spawn(effectiveAdb, ['start-server'], { windowsHide: true });
-        ps.on('error', () => resolve());
-        ps.on('close', () => resolve());
+      await new Promise((resolve) => {
+        const adbDir = path.dirname(effectiveAdb);
+        const ps = spawn(effectiveAdb, ['start-server'], {
+          windowsHide: true,
+          cwd: adbDir,
+          env: { ...process.env, PATH: `${adbDir}${path.delimiter}${process.env.PATH || ''}` }
+        });
+        let out = '';
+        ps.stdout.on('data', d => { out += d.toString(); });
+        ps.stderr.on('data', d => { out += d.toString(); });
+        ps.on('error', (e) => {
+          writeAdbLog(`diagnose start-server error=${e.message || e}`);
+          resolve();
+        });
+        ps.on('close', (code) => {
+          writeAdbLog(`diagnose start-server close code=${code} output=${compactLogText(out)}`);
+          resolve();
+        });
         setTimeout(() => { try { ps.kill(); } catch {} resolve(); }, 6000);
       });
       const raw = await new Promise((resolve, reject) => {
-        const ps = spawn(effectiveAdb, ['devices', '-l'], { windowsHide: true });
+        const adbDir = path.dirname(effectiveAdb);
+        const ps = spawn(effectiveAdb, ['devices', '-l'], {
+          windowsHide: true,
+          cwd: adbDir,
+          env: { ...process.env, PATH: `${adbDir}${path.delimiter}${process.env.PATH || ''}` }
+        });
         let out = '';
         ps.stdout.on('data', d => { out += d.toString(); });
         ps.stderr.on('data', d => { out += d.toString(); });
@@ -1575,7 +1726,14 @@ ipcMain.handle('env:diagnose', async () => {
         else if (status === 'unauthorized') result.unauthorizedDevices.push(id);
         else if (status === 'offline') result.offlineDevices.push(id);
       }
-    } catch { /* ignore */ }
+      writeAdbLog(
+        `diagnose devices raw=${compactLogText(raw)} ready=${compactJson(result.readyDevices)} unauthorized=${compactJson(result.unauthorizedDevices)} offline=${compactJson(result.offlineDevices)}`
+      );
+    } catch (e) {
+      writeAdbLog(`diagnose devices failed path=${effectiveAdb} error=${e.message || e}`);
+    }
+  } else {
+    writeAdbLog('diagnose no effective adb path');
   }
 
   // Android Studio 설치 여부 확인
@@ -1594,6 +1752,7 @@ ipcMain.handle('env:diagnose', async () => {
     try { fsSync.accessSync(p); return true; } catch { return false; }
   });
 
+  writeAdbLog(`diagnose result=${compactJson(result)}`);
   return result;
 });
 
