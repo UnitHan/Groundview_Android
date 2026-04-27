@@ -1,12 +1,16 @@
 import React from 'react';
-import { TERMS_OF_SERVICE, PRIVACY_POLICY, CONSENT_KEY } from '../utils/legalTexts';
+import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_OF_SERVICE_EN, PRIVACY_POLICY_EN, CONSENT_KEY } from '../utils/legalTexts';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
+import { useAppStore } from '../store';
+import { useT } from '../i18n';
 
 interface ConsentModalProps {
   onAccept: () => void;
 }
 
 export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
+  const t = useT();
+  const { state } = useAppStore();
   const [termsChecked, setTermsChecked] = React.useState(false);
   const [privacyChecked, setPrivacyChecked] = React.useState(false);
   const [viewing, setViewing] = React.useState<'terms' | 'privacy' | null>(null);
@@ -45,7 +49,7 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontWeight: 800, fontSize: 15, color: '#e5e7eb' }}>
-              {viewing === 'terms' ? '이용약관' : '개인정보처리방침'}
+              {viewing === 'terms' ? t.consent.viewTermsTitle : t.consent.viewPrivacyTitle}
             </div>
             <button
               onClick={() => setViewing(null)}
@@ -61,7 +65,7 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
               }}
               {...pressableHandlers}
             >
-              닫기
+              {t.consent.closeBtn}
             </button>
           </div>
           <div style={{
@@ -73,7 +77,9 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
             whiteSpace: 'pre-wrap',
             fontFamily: 'inherit'
           }}>
-            {viewing === 'terms' ? TERMS_OF_SERVICE : PRIVACY_POLICY}
+            {viewing === 'terms'
+              ? (state.uiLang === 'en' ? TERMS_OF_SERVICE_EN : TERMS_OF_SERVICE)
+              : (state.uiLang === 'en' ? PRIVACY_POLICY_EN : PRIVACY_POLICY)}
           </div>
         </div>
       </div>
@@ -102,9 +108,9 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
       }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>GroundView에 오신 것을 환영합니다</div>
+          <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>{t.consent.title}</div>
           <div style={{ fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>
-            서비스를 이용하기 전에 아래 약관을 읽고 동의해 주세요.
+            {t.consent.subtitle}
           </div>
         </div>
 
@@ -119,11 +125,10 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
           color: '#9ca3af',
           lineHeight: 1.7
         }}>
-          <div style={{ marginBottom: 6, color: '#d1d5db', fontWeight: 600 }}>이 앱은 다음을 수행합니다</div>
-          <div>• Android 기기 화면을 로컬에서 캡처하고 UI 요소를 분석합니다</div>
-          <div>• AI 분석 기능 사용 시 화면 이미지가 Google Gemini API로 전송됩니다</div>
-          <div>• Gemini API Key는 이용자 기기 내에 암호화하여 저장됩니다</div>
-          <div>• 회사 서버로는 어떤 데이터도 전송되지 않습니다</div>
+          <div style={{ marginBottom: 6, color: '#d1d5db', fontWeight: 600 }}>{t.consent.infoTitle}</div>
+          {t.consent.infoItems.map((item, i) => (
+            <div key={i}>• {item}</div>
+          ))}
         </div>
 
         {/* Checkboxes */}
@@ -136,6 +141,7 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
               style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#2563eb' }}
             />
             <span style={{ fontSize: 13, color: '#d1d5db' }}>
+              {t.consent.termsPrefix}
               <button
                 onClick={() => setViewing('terms')}
                 style={{
@@ -148,9 +154,9 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
                   textDecoration: 'underline'
                 }}
               >
-                이용약관
+                {t.consent.termsBtn}
               </button>
-              을 읽고 동의합니다 (필수)
+              {t.consent.termsSuffix}
             </span>
           </label>
 
@@ -162,6 +168,7 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
               style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#2563eb' }}
             />
             <span style={{ fontSize: 13, color: '#d1d5db' }}>
+              {t.consent.privacyPrefix}
               <button
                 onClick={() => setViewing('privacy')}
                 style={{
@@ -174,9 +181,9 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
                   textDecoration: 'underline'
                 }}
               >
-                개인정보처리방침
+                {t.consent.privacyBtn}
               </button>
-              을 읽고 동의합니다 (필수)
+              {t.consent.privacySuffix}
             </span>
           </label>
         </div>
@@ -200,7 +207,7 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
           }}
           {...(canAccept ? pressableHandlers : {})}
         >
-          동의하고 시작하기
+          {t.consent.acceptBtn}
         </button>
 
         <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: '#4b5563' }}>

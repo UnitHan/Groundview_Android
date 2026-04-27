@@ -3,6 +3,7 @@ import { useAppStore } from '../store';
 import { colors, pressableStyle, pressableHandlers } from '../utils/styles';
 import geminiLogo from '/Gemini_logo.png';
 import { EnvSetupModal } from './EnvSetupModal';
+import { useT } from '../i18n';
 
 // 환경 진단 결과 타입
 interface EnvDiagnosis {
@@ -22,14 +23,15 @@ function calcLight(diag: EnvDiagnosis | null, deviceCount: number): TrafficLight
   return 'yellow'; // ADB 있지만 기기 없음
 }
 
-const LIGHT: Record<TrafficLight, { color: string; label: string }> = {
-  red:    { color: '#ef4444', label: '설정 필요' },
-  yellow: { color: '#f59e0b', label: '일부 미완료' },
-  green:  { color: '#22c55e', label: '정상' },
+const LIGHT_COLORS: Record<TrafficLight, string> = {
+  red:    '#ef4444',
+  yellow: '#f59e0b',
+  green:  '#22c55e',
 };
 
 export const DevicesPage: React.FC = () => {
   const { state, loadDevices, selectDevice, capture } = useAppStore();
+  const t = useT();
   const [envModalOpen, setEnvModalOpen] = React.useState(false);
   const [envDiag, setEnvDiag] = React.useState<EnvDiagnosis | null>(null);
   const autoOpenedRef = React.useRef(false);
@@ -51,7 +53,7 @@ export const DevicesPage: React.FC = () => {
   }, [runDiagnose]);
 
   const light = calcLight(envDiag, state.devices.length);
-  const lightCfg = LIGHT[light];
+  const lightCfg = { color: LIGHT_COLORS[light], label: t.devices.status[light] };
 
   // 마운트 시 즉시 로드 + 3초마다 자동 폴링 (analyze 중엔 폴링 중단)
   React.useEffect(() => {
@@ -222,7 +224,7 @@ export const DevicesPage: React.FC = () => {
                             {d.name || d.id}
                           </div>
                           <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-                            {d.id}{isWireless ? ' · 무선' : ' · USB'}
+                            {d.id}{isWireless ? ` · ${t.devices.wireless}` : ' · USB'}
                           </div>
                         </div>
                         {isSelected && (
@@ -311,13 +313,13 @@ export const DevicesPage: React.FC = () => {
                         fontSize: 13,
                         lineHeight: 1.6
                       }}>
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>📱 GroundView Service 접근성 권한 필요</div>
-                        <div>Compose 앱 지원을 위해 최초 1회 설정이 필요합니다.</div>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{t.devices.gvService.permTitle}</div>
+                        <div>{t.devices.gvService.permDesc}</div>
                         <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 12, background: '#fef3c7', padding: '4px 8px', borderRadius: 6 }}>
-                          설정 → 접근성 → GroundView Service → 활성화
+                          {t.devices.gvService.permGuide}
                         </div>
                         <div style={{ marginTop: 8, color: '#78350f', fontSize: 12 }}>
-                          활성화 후 Capture Screen을 다시 눌러주세요.
+                          {t.devices.gvService.permRetry}
                         </div>
                       </div>
                     )}
@@ -331,7 +333,7 @@ export const DevicesPage: React.FC = () => {
                         fontSize: 13,
                         fontWeight: 600
                       }}>
-                        ✅ GroundView Service 활성화됨 — Compose 앱 지원
+                        {t.devices.gvService.enabled}
                       </div>
                     )}
                   </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { colors, pressableStyle, pressableHandlers } from '../utils/styles';
+import { useT } from '../i18n';
 
 const spinKeyframes = `
 @keyframes gv-spin {
@@ -41,10 +42,10 @@ function getTrafficLight(diag: EnvDiagnosis | null): TrafficLight {
   return 'green';
 }
 
-const LIGHT_COLORS: Record<TrafficLight, { bg: string; border: string; label: string }> = {
-  red:    { bg: '#ef4444', border: '#dc2626', label: '설정 필요' },
-  yellow: { bg: '#f59e0b', border: '#d97706', label: '일부 설정 미완료' },
-  green:  { bg: '#22c55e', border: '#16a34a', label: '정상' },
+const LIGHT_COLORS: Record<TrafficLight, { bg: string; border: string }> = {
+  red:    { bg: '#ef4444', border: '#dc2626' },
+  yellow: { bg: '#f59e0b', border: '#d97706' },
+  green:  { bg: '#22c55e', border: '#16a34a' },
 };
 
 interface Props {
@@ -52,6 +53,7 @@ interface Props {
 }
 
 export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
+  const t = useT();
   const [diag, setDiag] = React.useState<EnvDiagnosis | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [downloading, setDownloading] = React.useState(false);
@@ -96,6 +98,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
 
   const light = getTrafficLight(diag);
   const lightCfg = LIGHT_COLORS[light];
+  const lightLabel = t.env.status[light];
 
   return (
     <div
@@ -133,8 +136,8 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
             }}
           />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: colors.textMain }}>환경 설정 진단</div>
-            <div style={{ fontSize: 13, color: colors.textSub, marginTop: 2 }}>{lightCfg.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: colors.textMain }}>{t.env.title}</div>
+            <div style={{ fontSize: 13, color: colors.textSub, marginTop: 2 }}>{lightLabel}</div>
           </div>
           <button
             onClick={onClose}
@@ -165,7 +168,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
               fontSize: 15, fontWeight: 600,
               animation: 'gv-pulse 1.4s ease-in-out infinite',
             }}>
-              환경을 진단하는 중
+              {t.env.diagnosing}
             </div>
             {/* 점 세 개 */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 10 }}>
@@ -187,14 +190,14 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
               title="ADB (Android Debug Bridge)"
               description={
                 diag?.adbFound
-                  ? diag.adbPath || 'ADB 감지됨'
-                  : 'ADB가 설치되어 있지 않거나 경로를 찾을 수 없습니다.'
+                  ? t.env.adb.found(diag.adbPath || '')
+                  : t.env.adb.notFound
               }
             >
               {!diag?.adbFound && (
                 <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ fontSize: 13, color: '#7c3aed', background: '#f5f3ff', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
-                    <strong>자동 다운로드</strong>: Google Android Platform Tools를 홈 디렉터리에 다운로드합니다.
+                    {t.env.adb.autoDownloadNote}
                   </div>
                   {downloadResult && (
                     <div style={{
@@ -204,7 +207,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                       color: downloadResult.ok ? '#166534' : '#b91c1c',
                       borderRadius: 8, padding: '8px 12px',
                     }}>
-                      {downloadResult.ok ? '✅ ADB 다운로드 및 설치 완료! 새로고침을 눌러주세요.' : `❌ ${downloadResult.error}`}
+                      {downloadResult.ok ? t.env.adb.downloadSuccess : `❌ ${downloadResult.error}`}
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -219,7 +222,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                       }}
                       {...pressableHandlers}
                     >
-                      {downloading ? '다운로드 중...' : '⬇ ADB 자동 다운로드'}
+                      {downloading ? t.env.adb.downloading : t.env.adb.downloadBtn}
                     </button>
                     <button
                       onClick={() => openUrl('https://developer.android.com/tools/releases/platform-tools')}
@@ -230,7 +233,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                       }}
                       {...pressableHandlers}
                     >
-                      공식 페이지 열기
+                      {t.env.adb.openPage}
                     </button>
                   </div>
                 </div>
@@ -251,32 +254,29 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                 : diag?.adbFound ? 'warn'
                 : 'skip'
               }
-              title="ADB 디바이스 연결"
+              title={t.env.devices.title}
               description={
-                !diag?.adbFound ? 'ADB 설치 후 확인 가능합니다.'
+                !diag?.adbFound ? t.env.devices.notAvailable
                 : diag?.readyDevices && diag.readyDevices.length > 0
-                  ? `${diag.readyDevices.length}개 기기 정상 연결됨: ${diag.readyDevices.join(', ')}`
+                  ? t.env.devices.connected(diag.readyDevices.length, diag.readyDevices.join(', '))
                   : diag?.unauthorizedDevices && diag.unauthorizedDevices.length > 0
-                  ? `인증 대기 중인 기기: ${diag.unauthorizedDevices.join(', ')}`
+                  ? t.env.devices.unauthorized(diag.unauthorizedDevices.join(', '))
                   : diag?.offlineDevices && diag.offlineDevices.length > 0
-                  ? `오프라인 기기: ${diag.offlineDevices.join(', ')}`
-                  : '연결된 기기가 없습니다.'
+                  ? t.env.devices.offline(diag.offlineDevices.join(', '))
+                  : t.env.devices.noDevice
               }
             >
               {diag?.adbFound && (diag.unauthorizedDevices.length > 0 || diag.readyDevices.length === 0) && (
-                <GuidanceBox title="📱 기기 연결 방법" color="blue">
+                <GuidanceBox title={t.env.connectGuide.title} color="blue">
                   <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 2, fontSize: 13 }}>
-                    <li>안드로이드 기기의 <strong>개발자 옵션</strong>을 활성화합니다.</li>
-                    <li>개발자 옵션 내 <strong>USB 디버깅</strong>을 켭니다.</li>
-                    <li>USB 케이블로 PC와 연결합니다.</li>
+                    {t.env.connectGuide.steps.map((step, i) => (
+                      <li key={i}>{step}</li>
+                    ))}
                     {diag.unauthorizedDevices.length > 0 && (
-                      <li style={{ color: '#b45309' }}>
-                        기기 화면에 <strong>"USB 디버깅을 허용하시겠습니까?"</strong> 팝업이 뜨면<br />
-                        <strong>"이 컴퓨터에서 항상 허용"</strong>을 체크하고 <strong>확인</strong>을 누릅니다.
-                      </li>
+                      <li style={{ color: '#b45309' }}>{t.env.connectGuide.unauthStep}</li>
                     )}
                     {diag.unauthorizedDevices.length > 0 && (
-                      <li>케이블을 뽑았다가 다시 꽂은 후 아래 새로고침을 눌러주세요.</li>
+                      <li>{t.env.connectGuide.unauthReplug}</li>
                     )}
                   </ol>
                 </GuidanceBox>
@@ -287,15 +287,14 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
             {diag?.adbFound && diag.readyDevices.length === 0 && (
               <CheckItem
                 status="info"
-                title="개발자 옵션 활성화 방법"
-                description="기기에서 개발자 옵션이 비활성화되어 있을 수 있습니다."
+                title={t.env.devOptions.title}
+                description={t.env.devOptions.desc}
               >
-                <GuidanceBox title="⚙️ 개발자 옵션 켜는 방법" color="purple">
+                <GuidanceBox title={t.env.devOptions.guideTitle} color="purple">
                   <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 2, fontSize: 13 }}>
-                    <li><strong>설정</strong> → <strong>휴대전화 정보</strong> (또는 소프트웨어 정보)</li>
-                    <li><strong>빌드 번호</strong>를 7번 연속으로 탭합니다.</li>
-                    <li>"개발자가 되었습니다!" 메시지 확인.</li>
-                    <li><strong>설정</strong> → <strong>개발자 옵션</strong> → <strong>USB 디버깅</strong> 활성화.</li>
+                    {t.env.devOptions.steps.map((step, i) => (
+                      <li key={i}>{step}</li>
+                    ))}
                   </ol>
                 </GuidanceBox>
               </CheckItem>
@@ -304,19 +303,17 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
             {/* ── Android Studio 권장 ── */}
             <CheckItem
               status={diag?.androidStudioFound ? 'ok' : 'info'}
-              title="Android Studio (권장 사항)"
+              title={t.env.studio.title}
               description={
                 diag?.androidStudioFound
-                  ? 'Android Studio가 설치되어 있습니다.'
-                  : 'Android Studio를 설치하면 ADB를 포함한 Platform Tools가 자동으로 제공됩니다.'
+                  ? t.env.studio.installed
+                  : t.env.studio.notInstalled
               }
             >
               {!diag?.androidStudioFound && (
-                <GuidanceBox title="💡 권장 사항" color="gray">
+                <GuidanceBox title={t.env.studio.guideTitle} color="gray">
                   <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
-                    GroundView를 사용하기 전에 <strong>Android Studio</strong>를 설치하고
-                    SDK Manager에서 <strong>Android SDK Platform-Tools</strong> 설치를 완료하면
-                    별도 설정 없이 <strong>즉시 사용</strong>할 수 있습니다.
+                    {t.env.studio.guideDesc}
                   </p>
                   <button
                     onClick={() => openUrl('https://developer.android.com/studio')}
@@ -328,7 +325,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                     }}
                     {...pressableHandlers}
                   >
-                    Android Studio 다운로드 →
+                    {t.env.studio.downloadBtn}
                   </button>
                 </GuidanceBox>
               )}
@@ -345,7 +342,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                 }}
                 {...pressableHandlers}
               >
-                🔄 다시 진단
+                {t.env.reDiagnose}
               </button>
               <button
                 onClick={onClose}
@@ -357,7 +354,7 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                 }}
                 {...pressableHandlers}
               >
-                닫기
+                {t.env.close}
               </button>
             </div>
           </div>

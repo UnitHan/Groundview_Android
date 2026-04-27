@@ -1,6 +1,6 @@
 {
   "name": "groundview",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "description": "GroundView desktop app (ADB/WDA capture, OCR, locator generator).",
   "author": {
@@ -23,9 +23,29 @@
       "!**/.DS_Store"
     ],
     "extraResources": [
-      "backend/**/*",
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!test_*.py",
+          "!shot.png",
+          "!**/__pycache__/**"
+        ]
+      },
       "requirements.txt",
-      "resources/**/*",
+      {
+        "from": "resources",
+        "to": "resources",
+        "filter": [
+          "**/*",
+          "!python-bundle/python.cat",
+          "!python-bundle/Scripts/pip*.exe",
+          "!python-bundle/Scripts/wheel.exe",
+          "!python-bundle/Lib/site-packages/setuptools/tests/**",
+          "!python-bundle/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/**"
+        ]
+      },
       "LICENSE.txt",
       "THIRD-PARTY-NOTICES.md"
     ],
@@ -41,11 +61,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "appx",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         "zip"
       ],
@@ -59,7 +83,10 @@
       "displayName": "GroundView",
       "applicationId": "GroundView",
       "backgroundColor": "transparent",
-      "languages": ["ko-KR", "en-US"],
+      "languages": [
+        "ko-KR",
+        "en-US"
+      ],
       "showNameOnTiles": true,
       "artifactName": "${productName}-${version}.${ext}"
     },

@@ -81,3 +81,63 @@ QA Bulls(이하 "회사")는 이용자의 개인정보 보호를 중요시하며
 
 /** localStorage key for consent tracking */
 export const CONSENT_KEY = 'gv_consent_v1';
+
+export const TERMS_OF_SERVICE_EN = `Terms of Service
+
+Article 1 (Purpose)
+These Terms govern the use of GroundView software ("Service") provided by QA Bulls ("Company"), including terms of use, procedures, and the rights, obligations, and responsibilities between the Company and users.
+
+Article 2 (Nature of Service)
+GroundView is a test automation tool that captures Android device screens and analyzes UI elements. This Service is provided as a professional tool for software developers and QA engineers.
+
+Article 3 (User Obligations)
+1. Users must comply with applicable laws, these Terms, and notices when using the Service.
+2. Users are responsible for obtaining consent and complying with relevant laws when capturing or analyzing screens containing others' personal information, copyrighted material, or confidential information.
+3. Users must not use the Service for malicious or illegal purposes.
+
+Article 4 (AI Features)
+1. The AI screen analysis feature is provided through the Google Gemini API.
+2. When using AI analysis, captured screen images may be transmitted to Google's servers.
+3. Users who use AI analysis on screens containing sensitive information are deemed to have acknowledged and accepted the associated risks.
+
+Article 5 (Service Restrictions)
+The Company may restrict or suspend the Service in the following cases:
+1. When maintenance or updates to the service system are required.
+2. When a user violates these Terms.
+3. When the Company otherwise determines that providing the Service is not possible.
+
+Article 6 (Disclaimer)
+1. The Company shall not be liable for damages arising from a user's use of the Service unless caused by the Company's intentional misconduct or gross negligence.
+2. The Company shall not be liable for service interruptions caused by failures, policy changes, or other issues with third-party services such as the Google Gemini API.
+
+Article 7 (Amendments)
+The Company may amend these Terms within the scope permitted by applicable law and will notify users of any changes through in-app announcements.
+
+Effective Date: January 1, 2025
+Provided by: QA Bulls`;
+
+export const PRIVACY_POLICY_EN = `Privacy Policy
+
+1. Personal Information Collected
+GroundView does not collect or store users' personal information on company servers. All data processed by the app is handled locally on the user's device.
+
+2. Use of Gemini API Key
+The Gemini API Key entered by the user is encrypted using PBKDF2-HMAC-SHA256 hashing and Fernet symmetric encryption, and stored only on the user's local device. The Company does not have access to API keys.
+
+3. Screen Capture Data
+Screen captures taken for UI analysis purposes are processed and stored only on the user's local device. When using the AI analysis feature, screen images are transmitted to Google's Gemini API. No captured data is transmitted to company servers.
+
+4. Device Information
+Device information collected during device connection (device ID, Android version, etc.) is used only for providing the service and is not transmitted to company servers.
+
+5. Data Retention
+All data is managed on the user's local device. Users may delete all data by uninstalling the app.
+
+6. Third-Party Services
+This Service uses the Google Gemini API. For Google's privacy practices, please refer to Google's Privacy Policy.
+
+7. Contact
+For inquiries regarding privacy, please contact: contact@qabulls.com
+
+Effective Date: January 1, 2025
+Provided by: QA Bulls`;

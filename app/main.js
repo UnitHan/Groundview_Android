@@ -54,8 +54,11 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 // WindowsApps 경로에서 실행 중이면 MSIX 환경으로 판단하고 샌드박스를 비활성화한다.
 const isMsix = (process.execPath || '').toLowerCase().includes('windowsapps');
 if (isMsix) {
+  // Stabilize Chromium child-process startup under MSIX on hardened Windows images.
+  app.disableHardwareAcceleration();
   app.commandLine.appendSwitch('no-sandbox');
   app.commandLine.appendSwitch('disable-gpu-sandbox');
+  app.commandLine.appendSwitch('disable-features', 'RendererCodeIntegrity,CalculateNativeWinOcclusion');
 }
 
 // Detect bundled Python EARLY — must run before startPythonServer().
@@ -1009,77 +1012,124 @@ const startPythonServer = async () => {
 
 async function scanAdbPaths() {
   const candidates = [];
-
-  // 1) where / which (PATH 우선)
-  if (process.platform === 'win32') {
+  const addCandidate = (rawPath) => {
+    if (!rawPath) return;
+    const trimmed = String(rawPath).trim();
+    if (!trimmed) return;
+    const unquoted =
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+        ? trimmed.slice(1, -1)
+        : trimmed;
+    if (!unquoted) return;
+    candidates.push(path.normalize(unquoted));
+  };
+  const dedupeKey = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const isWindowsAppsAlias = (p) =>
+    process.platform === 'win32' &&
+    p.toLowerCase().includes('\\appdata\\local\\microsoft\\windowsapps\\');
+  const exists = (p) => {
     try {
-      const out = execSync('where adb', { encoding: 'utf8', windowsHide: true });
-      out.split(/\r?\n/)
-        .map(l => l.trim())
-        .filter(l => l && l.toLowerCase().endsWith('.exe')) // Windows: .exe만 허용
-        .forEach(p => candidates.push(p));
-    } catch { /* not in PATH */ }
+      // F_OK only: X_OK is not reliable on Windows package-identity contexts.
+      fsSync.accessSync(p, fsSync.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const isValidAdbBinary = (bin) => {
+    try {
+      const res = spawnSync(bin, ['version'], {
+        windowsHide: true,
+        encoding: 'utf8',
+        timeout: 5000
+      });
+      if (res.error || res.status !== 0) return false;
+      const text = `${res.stdout || ''}${res.stderr || ''}`;
+      return /Android Debug Bridge/i.test(text);
+    } catch {
+      return false;
+    }
+  };
+
+  // 1) where / which (PATH fallback)
+  if (process.platform === 'win32') {
+    // In MSIX, where.exe can return alias paths that are not real adb binaries.
+    if (!isMsix) {
+      try {
+        const out = execSync('where adb', { encoding: 'utf8', windowsHide: true, timeout: 3000 });
+        out.split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l && l.toLowerCase().endsWith('.exe'))
+          .forEach(addCandidate);
+      } catch {
+        /* not in PATH */
+      }
+    }
   } else {
     try {
-      const out = execSync('which adb', { encoding: 'utf8' });
-      out.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(p => candidates.push(p));
-    } catch { /* not in PATH */ }
+      const out = execSync('which adb', { encoding: 'utf8', timeout: 3000 });
+      out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).forEach(addCandidate);
+    } catch {
+      /* not in PATH */
+    }
   }
 
-  // 2) Android Studio / SDK Manager 기본 설치 경로 (Windows)
+  // 2) Android Studio / SDK Manager known install paths
   if (process.platform === 'win32') {
+    const sdkRoots = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT].filter(Boolean);
+    for (const root of sdkRoots) {
+      addCandidate(path.join(root, 'platform-tools', 'adb.exe'));
+    }
+
+    const home = os.homedir();
     const bases = [
       process.env.LOCALAPPDATA,
       process.env.USERPROFILE && path.join(process.env.USERPROFILE, 'AppData', 'Local'),
       process.env.APPDATA && path.join(process.env.APPDATA, '..', 'Local'),
-      'C:\\Users\\' + (process.env.USERNAME || ''),
+      home && path.join(home, 'AppData', 'Local'),
+      process.env.USERNAME && `C:\\Users\\${process.env.USERNAME}`,
+      'C:\\Users\\Default'
     ].filter(Boolean);
     for (const base of bases) {
-      candidates.push(
-        path.join(base, 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-        path.join(base, 'Android', 'sdk', 'platform-tools', 'adb.exe'),
-      );
+      addCandidate(path.join(base, 'Android', 'Sdk', 'platform-tools', 'adb.exe'));
+      addCandidate(path.join(base, 'Android', 'sdk', 'platform-tools', 'adb.exe'));
     }
-    // Android Studio 번들 SDK
-    candidates.push(
-      'C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe',
-      'C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe',
-      path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'Android Studio', 'bin', 'adb.exe'),
-    );
-    // scoop / chocolatey / winget 설치
-    candidates.push(
-      path.join(process.env.USERPROFILE || '', 'scoop', 'apps', 'adb', 'current', 'adb.exe'),
-      'C:\\ProgramData\\chocolatey\\bin\\adb.exe',
-    );
+
+    addCandidate(path.join(process.resourcesPath || '', 'resources', 'platform-tools', 'adb.exe'));
+    addCandidate('C:\\Program Files\\Android\\android-sdk\\platform-tools\\adb.exe');
+    addCandidate('C:\\Program Files (x86)\\Android\\android-sdk\\platform-tools\\adb.exe');
+    addCandidate(path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'Android Studio', 'bin', 'adb.exe'));
+    addCandidate(path.join(process.env.USERPROFILE || '', 'scoop', 'apps', 'adb', 'current', 'adb.exe'));
+    addCandidate('C:\\ProgramData\\chocolatey\\bin\\adb.exe');
+    addCandidate(path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Microsoft', 'WindowsApps', 'adb.exe'));
   }
 
   // 3) macOS / Linux
   if (process.platform === 'darwin') {
-    candidates.push(
-      path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'),
-      '/usr/local/bin/adb',
-      '/opt/homebrew/bin/adb',
-    );
+    addCandidate(path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'));
+    addCandidate('/usr/local/bin/adb');
+    addCandidate('/opt/homebrew/bin/adb');
   } else if (process.platform === 'linux') {
-    candidates.push(
-      path.join(os.homedir(), 'Android', 'Sdk', 'platform-tools', 'adb'),
-      '/usr/bin/adb',
-      '/usr/local/bin/adb',
-    );
+    addCandidate(path.join(os.homedir(), 'Android', 'Sdk', 'platform-tools', 'adb'));
+    addCandidate('/usr/bin/adb');
+    addCandidate('/usr/local/bin/adb');
   }
 
-  // 중복 제거 후 존재 확인
   const seen = new Set();
-  const found = [];
-  for (const c of candidates) {
-    if (!c || seen.has(c)) continue;
-    seen.add(c);
-    try {
-      fsSync.accessSync(c, fsSync.constants.X_OK);
-      found.push(c);
-    } catch { /* not found */ }
+  const existing = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const key = dedupeKey(candidate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (isWindowsAppsAlias(candidate)) continue;
+    if (exists(candidate)) existing.push(candidate);
   }
-  return found;
+
+  // Prefer real adb binaries (reject stale shims/aliases when possible).
+  const verified = existing.filter((bin) => isValidAdbBinary(bin));
+  return verified.length > 0 ? verified : existing;
 }
 
 ipcMain.handle('adb:listDevices', async () => {
@@ -1738,4 +1788,3 @@ app.on('before-quit', () => {
     /* ignore cleanup errors */
   }
 });
-

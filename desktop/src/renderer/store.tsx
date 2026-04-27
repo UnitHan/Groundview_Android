@@ -38,6 +38,7 @@ type State = {
   geminiApiKey?: string;
   geminiModel?: string;
   gvServiceStatus?: 'unknown' | 'ready' | 'installing' | 'waiting_permission' | 'unavailable';
+  uiLang: 'ko' | 'en';
 };
 
 type XmlNodeSample = {
@@ -87,6 +88,7 @@ type Action =
   | { type: 'saving'; value: boolean }
   | { type: 'gemini'; key?: string; model?: string }
   | { type: 'gvServiceStatus'; status: State['gvServiceStatus'] }
+  | { type: 'setLang'; lang: 'ko' | 'en' }
   | {
       type: 'meta';
       payload: {
@@ -104,7 +106,16 @@ const initialState: State = {
   appiumVersion: '2',
   uiPhase: 'devices',
   geminiApiKey: undefined,
-  geminiModel: undefined
+  geminiModel: undefined,
+  uiLang: (() => {
+    try {
+      const saved = localStorage.getItem('gv_lang');
+      if (saved === 'ko' || saved === 'en') return saved;
+      return navigator.language.startsWith('en') ? 'en' : 'ko';
+    } catch {
+      return 'ko';
+    }
+  })() as 'ko' | 'en'
 };
 
 function reducer(state: State, action: Action): State {
@@ -156,6 +167,9 @@ function reducer(state: State, action: Action): State {
       return { ...state, geminiApiKey: action.key, geminiModel: action.model };
     case 'gvServiceStatus':
       return { ...state, gvServiceStatus: action.status };
+    case 'setLang':
+      try { localStorage.setItem('gv_lang', action.lang); } catch { /* ignore */ }
+      return { ...state, uiLang: action.lang };
     case 'meta':
       return {
         ...state,
@@ -189,6 +203,7 @@ type Ctx = {
   selectNode: (id?: string, bounds?: string) => void;
   setPhase: (p: State['uiPhase']) => void;
   saveGemini: (key?: string, model?: string) => Promise<void>;
+  setLang: (lang: 'ko' | 'en') => void;
 };
 
 const StoreContext = createContext<Ctx | null>(null);
@@ -552,7 +567,8 @@ const setPlatform = (p: Platform) => {
         loadDump,
         selectNode,
         setPhase,
-        saveGemini
+        saveGemini,
+        setLang: (lang: 'ko' | 'en') => dispatch({ type: 'setLang', lang })
       }}
     >
       {children}

@@ -1,13 +1,17 @@
 import React from 'react';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
 import { getApiUrl, fetchWithRetry } from '../utils/api';
-import { TERMS_OF_SERVICE, PRIVACY_POLICY } from '../utils/legalTexts';
+import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_OF_SERVICE_EN, PRIVACY_POLICY_EN } from '../utils/legalTexts';
+import { useAppStore } from '../store';
+import { useT } from '../i18n';
 
 interface SettingsModalProps {
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
+  const { state, setLang } = useAppStore();
+  const t = useT();
   const [geminiKey, setGeminiKey] = React.useState('');
   const [geminiModel, setGeminiModel] = React.useState('gemini-2.5-flash');
   const [saveStatus, setSaveStatus] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -51,7 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       }
       // All retries exhausted — show soft warning, don't block usage
       console.warn('Backend not reachable after retries:', lastError);
-      setSaveStatus({ type: 'error', message: '백엔드 서버 준비 중입니다. 잠시 후 다시 시도해주세요.' });
+      setSaveStatus({ type: 'error', message: t.settings.gemini.backendStarting });
       setIsLoading(false);
     };
     loadSettings();
@@ -70,7 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
   const handleSaveGeminiKey = async () => {
     if (!geminiKey.trim()) {
-      setSaveStatus({ type: 'error', message: 'API Key를 입력하세요.' });
+      setSaveStatus({ type: 'error', message: t.settings.gemini.noKey });
       return;
     }
     try {
@@ -81,7 +85,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       });
 
       if (response.ok) {
-        setSaveStatus({ type: 'success', message: 'API Key가 암호화되어 저장되었습니다!' });
+        setSaveStatus({ type: 'success', message: t.settings.gemini.saveSuccess });
         setHasSavedKey(true);
         setIsEditing(false);
         setTimeout(() => {
@@ -90,10 +94,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
         }, 2000);
       } else {
         const error = await response.text();
-        setSaveStatus({ type: 'error', message: `저장 실패: ${error}` });
+        setSaveStatus({ type: 'error', message: t.settings.gemini.saveFailed(error) });
       }
     } catch (e) {
-      setSaveStatus({ type: 'error', message: `오류: ${String(e)}` });
+      setSaveStatus({ type: 'error', message: t.settings.adb.error(String(e)) });
     }
   };
 
@@ -104,12 +108,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       const result = await window.groundview.adb.autoDetect();
       if (result?.ok && result.path) {
         setAdbPath(result.path);
-        setAdbStatus({ type: 'success', message: `자동 감지됨: ${result.path}` });
+        setAdbStatus({ type: 'success', message: t.settings.adb.detected(result.path) });
       } else {
-        setAdbStatus({ type: 'info', message: 'ADB를 찾지 못했습니다. Android Studio를 설치하거나 경로를 직접 입력하세요.' });
+        setAdbStatus({ type: 'info', message: t.settings.adb.notFound });
       }
     } catch (e) {
-      setAdbStatus({ type: 'error', message: `오류: ${String(e)}` });
+      setAdbStatus({ type: 'error', message: t.settings.adb.error(String(e)) });
     } finally {
       setIsScanning(false);
     }
@@ -119,9 +123,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     if (!adbPath.trim()) return;
     try {
       await window.groundview.adb.setPath(adbPath.trim());
-      setAdbStatus({ type: 'success', message: 'ADB 경로가 저장되었습니다.' });
+      setAdbStatus({ type: 'success', message: t.settings.adb.pathSaved });
     } catch (e) {
-      setAdbStatus({ type: 'error', message: `오류: ${String(e)}` });
+      setAdbStatus({ type: 'error', message: t.settings.adb.error(String(e)) });
     }
   };
 
@@ -153,8 +157,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>설정</div>
-            <div style={{ color: '#9ca3af', fontSize: 12 }}>앱 설정을 관리합니다</div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{t.settings.title}</div>
+            <div style={{ color: '#9ca3af', fontSize: 12 }}>{t.settings.subtitle}</div>
           </div>
           <button
             onClick={onClose}
@@ -169,22 +173,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             }}
             {...pressableHandlers}
           >
-            Close
+            {t.settings.close}
           </button>
+        </div>
+
+        {/* 언어 설정 섹션 */}
+        <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: '#111827', border: '1px solid #1f2937' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: '#9ca3af' }}>{t.settings.lang.title}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['ko', 'en'] as const).map((lang) => (
+              <button
+                key={lang}
+                onClick={() => setLang(lang)}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: 6,
+                  border: state.uiLang === lang ? '2px solid #2563eb' : '1px solid #1f2937',
+                  background: state.uiLang === lang ? '#1e3a5f' : '#0e1726',
+                  color: state.uiLang === lang ? '#60a5fa' : '#9ca3af',
+                  fontSize: 13,
+                  fontWeight: state.uiLang === lang ? 700 : 400,
+                  cursor: 'pointer',
+                  ...pressableStyle
+                }}
+                {...pressableHandlers}
+              >
+                {t.settings.lang[lang]}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ADB 섹션 */}
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, background: '#111827', border: '1px solid #1f2937' }}>
           <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>ADB (Android Debug Bridge)</div>
           <div style={{ color: '#9ca3af', fontSize: 11, marginBottom: 8 }}>
-            Android 기기 연결에 사용됩니다. Android Studio 설치 시 자동 감지됩니다.
+            {t.settings.adb.desc}
           </div>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
             <input
               type="text"
               value={adbPath}
               onChange={(e) => setAdbPath(e.target.value)}
-              placeholder="adb.exe 경로 (예: C:\Users\...\platform-tools\adb.exe)"
+              placeholder={t.settings.adb.placeholder}
               style={{
                 flex: 1,
                 padding: '8px 10px',
@@ -212,7 +243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               }}
               {...pressableHandlers}
             >
-              {isScanning ? '탐색 중...' : '자동 감지'}
+              {isScanning ? t.settings.adb.scanning : t.settings.adb.autoDetect}
             </button>
             <button
               onClick={handleAdbSave}
@@ -229,7 +260,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               }}
               {...pressableHandlers}
             >
-              저장
+              {t.settings.adb.save}
             </button>
           </div>
           {adbStatus && (
@@ -245,9 +276,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
         {/* Gemini API Key 섹션 */}
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Gemini API 설정</div>
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>{t.settings.gemini.title}</div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <label style={{ fontWeight: 600, fontSize: 13 }}>API Key</label>
+            <label style={{ fontWeight: 600, fontSize: 13 }}>{t.settings.gemini.apiKey}</label>
             {hasSavedKey && !isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
@@ -264,7 +295,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 }}
                 {...pressableHandlers}
               >
-                변경
+                {t.settings.gemini.change}
               </button>
             )}
           </div>
@@ -272,7 +303,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             type="password"
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
-            placeholder={isLoading ? "로딩 중..." : "AIza..."}
+            placeholder={isLoading ? t.settings.gemini.loading : t.settings.gemini.placeholder}
             disabled={isLoading || (hasSavedKey && !isEditing)}
             style={{
               width: '100%',
@@ -289,18 +320,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           />
           {hasSavedKey && !isLoading && !isEditing && (
             <div style={{ fontSize: 11, color: '#4ade80', marginTop: 4 }}>
-              ✓ API Key가 저장되어 있습니다
+              {t.settings.gemini.keySaved}
             </div>
           )}
           {isEditing && (
             <div style={{ fontSize: 11, color: '#60a5fa', marginTop: 4 }}>
-              ✏️ 새로운 API Key를 입력하세요
+              {t.settings.gemini.editHint}
             </div>
           )}
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>모델</label>
+          <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{t.settings.gemini.model}</label>
           <select
             value={geminiModel}
             onChange={(e) => setGeminiModel(e.target.value)}
@@ -352,13 +383,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           }}
           {...pressableHandlers}
         >
-          💾 Gemini Key 저장
+          {t.settings.gemini.saveBtn}
         </button>
 
         <div style={{ marginTop: 12, fontSize: 12, color: '#9ca3af' }}>
-          <div style={{ marginBottom: 4 }}>🔒 API Key는 PBKDF2-HMAC-SHA256 해시 + Fernet 암호화로 보호됩니다</div>
+          <div style={{ marginBottom: 4 }}>{t.settings.gemini.encryptNote}</div>
           <div>
-            📌 Gemini API Key는{' '}
+            {t.settings.gemini.apiKeyNote}{' '}
             <a
               href="https://aistudio.google.com/app/apikey"
               target="_blank"
@@ -367,7 +398,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             >
               Google AI Studio
             </a>
-            에서 발급받을 수 있습니다
           </div>
         </div>
 
@@ -397,7 +427,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 padding: 0
               }}
             >
-              이용약관
+              {t.settings.footer.terms}
             </button>
             <button
               onClick={() => setLegalPopup('privacy')}
@@ -411,7 +441,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 padding: 0
               }}
             >
-              개인정보처리방침
+              {t.settings.footer.privacy}
             </button>
           </div>
         </div>
@@ -448,7 +478,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontWeight: 800, fontSize: 15, color: '#e5e7eb' }}>
-                {legalPopup === 'terms' ? '이용약관' : '개인정보처리방침'}
+                {legalPopup === 'terms' ? t.settings.footer.terms : t.settings.footer.privacy}
               </div>
               <button
                 onClick={() => setLegalPopup(null)}
@@ -462,7 +492,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                   fontSize: 12
                 }}
               >
-                닫기
+                {t.settings.close}
               </button>
             </div>
             <div style={{
@@ -474,7 +504,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               whiteSpace: 'pre-wrap',
               fontFamily: 'inherit'
             }}>
-              {legalPopup === 'terms' ? TERMS_OF_SERVICE : PRIVACY_POLICY}
+              {legalPopup === 'terms'
+                ? (state.uiLang === 'en' ? TERMS_OF_SERVICE_EN : TERMS_OF_SERVICE)
+                : (state.uiLang === 'en' ? PRIVACY_POLICY_EN : PRIVACY_POLICY)}
             </div>
           </div>
         </div>

@@ -231,6 +231,23 @@ async function main() {
   }
   log('All imports OK.');
 
+  // ── 7. Remove files that cause MSIX installation failures ──
+  // python.cat is a Windows Security Catalog file that conflicts with MSIX
+  // package signature validation, causing "failed to install" in the Store.
+  const filesToRemove = [
+    path.join(BUNDLE_DIR, 'python.cat'),
+  ];
+  for (const f of filesToRemove) {
+    try {
+      if (fs.existsSync(f)) {
+        fs.unlinkSync(f);
+        log(`Removed (MSIX-incompatible): ${path.basename(f)}`);
+      }
+    } catch (e) {
+      log(`Warning: could not remove ${f}: ${e.message}`);
+    }
+  }
+
   log(`\nPython bundle ready at: ${BUNDLE_DIR}`);
   log(`Bundle size: ${getDirSizeMB(BUNDLE_DIR)} MB`);
 }

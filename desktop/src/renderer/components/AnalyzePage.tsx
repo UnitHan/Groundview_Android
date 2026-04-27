@@ -10,9 +10,11 @@ import { pressableStyle, pressableHandlers } from '../utils/styles';
 import { generateLocators, LocatorSuggestion } from '../../../../core/src/locator';
 import { buildEasyLocator } from '../utils/locatorHelpers';
 import { getApiUrl, fetchWithRetry } from '../utils/api';
+import { useT } from '../i18n';
 
 export const AnalyzePage: React.FC = () => {
   const { state, setPhase, capture, exportZip, selectNode } = useAppStore();
+  const t = useT();
   const [treeViewMode, setTreeViewMode] = React.useState<'tree' | 'list'>('list');
   const [showCodeModal, setShowCodeModal] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
@@ -62,11 +64,11 @@ export const AnalyzePage: React.FC = () => {
         setShowOcrResult(true);
       } else {
         const errorText = await response.text();
-        setOcrData({ error: `OCR 실패: ${errorText}` });
+        setOcrData({ error: t.analyze.ocrFailed(errorText) });
         setShowOcrResult(true);
       }
     } catch (e) {
-      setOcrData({ error: `오류: ${String(e)}` });
+      setOcrData({ error: t.analyze.ocrFailed(String(e)) });
       setShowOcrResult(true);
     } finally {
       setOcrLoading(false);
@@ -279,7 +281,7 @@ export const AnalyzePage: React.FC = () => {
             animation: 'spin 1s linear infinite'
           }} />
           <div style={{ color: '#e5e7eb', fontSize: 16, fontWeight: 700 }}>
-            🤖 Gemini AI가 이미지를 분석하고 있습니다...
+            {t.analyze.analyzing}
           </div>
           <style>{`
             @keyframes spin {
