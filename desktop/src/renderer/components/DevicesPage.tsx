@@ -30,7 +30,7 @@ const LIGHT_COLORS: Record<TrafficLight, string> = {
 };
 
 export const DevicesPage: React.FC = () => {
-  const { state, loadDevices, selectDevice, capture } = useAppStore();
+  const { state, loadDevices, selectDevice, capture, loadDump } = useAppStore();
   const t = useT();
   const [envModalOpen, setEnvModalOpen] = React.useState(false);
   const [envDiag, setEnvDiag] = React.useState<EnvDiagnosis | null>(null);
@@ -62,14 +62,6 @@ export const DevicesPage: React.FC = () => {
     const timer = setInterval(() => loadDevices(), 3000);
     return () => clearInterval(timer);
   }, [state.uiPhase]);
-
-  const loadDump = async () => {
-    if (!window.groundview?.dialog?.openDump) return;
-    const res = await window.groundview.dialog.openDump();
-    if (res?.ok && res.dump) {
-      // setPhase는 store에서 처리
-    }
-  };
 
   const gvStatus = state.gvServiceStatus;
   const showGvBanner = state.platform === 'android' && gvStatus === 'waiting_permission';

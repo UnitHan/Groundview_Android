@@ -198,18 +198,37 @@ npm run dist:mac
 # 산출물: dist/electron/Appkium Inspector-0.0.10-arm64.dmg
 ```
 
-**서명·공증** (배포 시 필수, 로컬 테스트는 생략 가능):
-
-```bash
-export APPLE_ID="..."
-export APPLE_APP_SPECIFIC_PASSWORD="..."
-export APPLE_TEAM_ID="..."
-npm run dist:mac        # electron-builder가 notarize까지 수행
-```
-
 서명 없이 배포하면 사용자가 Gatekeeper 경고를 보고 우클릭 → 열기를 해야 한다.
 
 > Windows에서는 dmg 빌드·codesign·notarize 불가. **반드시 맥에서 실행.**
+
+### 4-1. 서명·공증 (배포 시 필수) — 실제 검증된 절차
+
+전제: QA Bulls(Team `35597M53Y5`)의 **Developer ID Application 인증서 + 개인키**가 이 맥 키체인에 있어야 한다.
+`security find-identity -v -p codesigning` 에 `Developer ID Application: SeongJun Choi (35597M53Y5)` 가 보이면 준비 완료.
+없으면: 이 맥에서 CSR 생성 → 포털에서 **G2 Sub-CA** 로 Developer ID Application 발급 → 다운받은 `.cer` + 개인키를 `.p12`(openssl `-legacy`)로 합쳐 `security import ... -T /usr/bin/codesign`.
+
+`identity` 는 `package.json` 에 하드코딩하지 않는다(인증서 없는 개발자의 빌드가 깨진다). 릴리스 때 환경변수로 지정:
+
+```bash
+# 1) 서명 빌드 — CSC_NAME 으로 서명 인증서 고정 (다른 Developer ID 오선택 방지)
+CSC_NAME="SeongJun Choi (35597M53Y5)" npm run dist:mac
+
+# 2) 공증 자격증명 저장 (최초 1회) — App-Specific Password 필요 (appleid.apple.com)
+xcrun notarytool store-credentials "qabulls-notary" \
+  --apple-id jjun6802@gmail.com --team-id 35597M53Y5
+
+# 3) dmg 서명 → 공증 → staple (arm64/x64 각각)
+for d in "dist/electron/Appkium Inspector-0.0.10-arm64.dmg" \
+         "dist/electron/Appkium Inspector-0.0.10.dmg"; do
+  codesign --force --timestamp --sign "Developer ID Application: SeongJun Choi (35597M53Y5)" "$d"
+  xcrun notarytool submit "$d" --keychain-profile "qabulls-notary" --wait
+  xcrun stapler staple "$d"
+  spctl -a -vv -t open --context context:primary-signature "$d"   # => accepted, Notarized Developer ID
+done
+```
+
+`hardenedRuntime` + `build/entitlements.mac.plist` 는 이미 설정돼 있어 공증 요건을 충족한다.
 
 ---
 
