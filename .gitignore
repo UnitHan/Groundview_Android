@@ -80,6 +80,9 @@ Appkium/
 # Appkium iOS Caller (separate Go project, not part of this repo)
 Appkium_iOS/
 
+# Groundview iOS (separate Electron project, reference only — never push from this repo)
+Groundview_iOS/
+
 # groundview-service build artifacts (APK is in resources/)
 groundview-service/app/build/
 groundview-service/.gradle/
