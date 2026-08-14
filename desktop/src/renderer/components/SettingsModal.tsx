@@ -4,12 +4,14 @@ import { getApiUrl, fetchWithRetry } from '../utils/api';
 import { TERMS_OF_SERVICE, PRIVACY_POLICY, TERMS_OF_SERVICE_EN, PRIVACY_POLICY_EN } from '../utils/legalTexts';
 import { useAppStore } from '../store';
 import { useT } from '../i18n';
+import { useEscClose } from '../hooks/useEscClose';
 
 interface SettingsModalProps {
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
+  useEscClose(onClose);
   const { state, setLang } = useAppStore();
   const t = useT();
   const [geminiKey, setGeminiKey] = React.useState('');

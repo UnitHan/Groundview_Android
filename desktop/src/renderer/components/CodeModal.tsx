@@ -3,6 +3,7 @@ import { LocatorSuggestion } from '../../../../core/src/locator';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
 import { buildEasyLocator, copyToClipboard } from '../utils/locatorHelpers';
 import { friendlyHint, friendlyRisk, locatorHints } from '../utils/codeHelpers';
+import { useEscClose } from '../hooks/useEscClose';
 
 interface CodeModalProps {
   node: any;
@@ -15,6 +16,7 @@ interface CodeModalProps {
 
 export const CodeModal: React.FC<CodeModalProps> = ({ node, platform, locators, screenshotPath, selectedBounds, onClose }) => {
   const [codeLang, setCodeLang] = React.useState<'python' | 'java'>('python');
+  useEscClose(onClose);
   const [geminiLocator, setGeminiLocator] = React.useState<{
     loading: boolean;
     error?: string | null;

@@ -130,6 +130,56 @@ const migrateLegacyGeminiSettings = () => {
 };
 migrateLegacyGeminiSettings();
 
+// productName 변경(GroundView → Appkium Inspector)으로 userData 폴더명이 바뀌면
+// 기존 사용자 설정(Gemini API Key, 모델, adbPath, 동의 등)이 구 폴더에 남아 유실된다.
+// 같은 상위 경로의 "GroundView" 폴더에서 현재 폴더로 1회 이관한다(현재 값 우선).
+const migrateOldProductNameSettings = () => {
+  try {
+    const parent = path.dirname(effectiveUserDataPath);
+    const oldFile = path.join(parent, 'GroundView', 'settings.json');
+    const currentFile = path.join(effectiveUserDataPath, 'settings.json');
+    if (oldFile === currentFile) return;
+    if (!fsSync.existsSync(oldFile)) return;
+
+    let oldData;
+    try {
+      oldData = JSON.parse(fsSync.readFileSync(oldFile, 'utf8'));
+    } catch {
+      return;
+    }
+    if (!oldData || typeof oldData !== 'object' || Array.isArray(oldData)) return;
+
+    let currentData = {};
+    try {
+      if (fsSync.existsSync(currentFile)) {
+        currentData = JSON.parse(fsSync.readFileSync(currentFile, 'utf8')) || {};
+      }
+    } catch {
+      currentData = {};
+    }
+
+    // 구본을 바탕으로 현재 값을 덮어씌운다(현재 값이 있으면 우선).
+    const merged = { ...oldData, ...currentData };
+    const hasCurrentKey = currentData.geminiApiKeyEncrypted || currentData.geminiApiKey;
+    if (!hasCurrentKey) {
+      if (oldData.geminiApiKeyEncrypted) merged.geminiApiKeyEncrypted = oldData.geminiApiKeyEncrypted;
+      else if (oldData.geminiApiKey) merged.geminiApiKey = oldData.geminiApiKey;
+    }
+    if (!currentData.geminiModel && oldData.geminiModel) merged.geminiModel = oldData.geminiModel;
+
+    // 변경 있을 때만 기록(매 부팅 불필요한 쓰기 방지)
+    const before = JSON.stringify(currentData);
+    const after = JSON.stringify(merged);
+    if (before === after) return;
+
+    fsSync.mkdirSync(path.dirname(currentFile), { recursive: true });
+    fsSync.writeFileSync(currentFile, JSON.stringify(merged, null, 2), 'utf8');
+  } catch {
+    /* ignore */
+  }
+};
+migrateOldProductNameSettings();
+
 // Default PaddleOCR cache path (if not set by user)
 // MSIX: process.cwd() is read-only (WindowsApps), so use writable userData path instead.
 if (!process.env.PADDLEOCR_HOME) {
@@ -1261,6 +1311,17 @@ ipcMain.handle('adb:health', async () => {
   writeAdbLog(`health result=${compactJson(result)}`);
   return result;
 });
+ipcMain.handle('adb:deviceInfo', async (_e, id) => {
+  writeAdbLog(`deviceInfo start deviceId=${id}`);
+  try {
+    const info = await adb.getDeviceInfo(id);
+    writeAdbLog(`deviceInfo result=${compactJson(info)}`);
+    return { ok: true, info };
+  } catch (e) {
+    writeAdbLog(`deviceInfo error deviceId=${id} message=${e.message || e}`);
+    return { ok: false, error: e.message || String(e) };
+  }
+});
 ipcMain.handle('adb:setPath', async (_e, bin) => {
   writeAdbLog(`setPath requested path=${bin}`);
   adb.setAdbPath(bin);
@@ -1510,7 +1571,7 @@ ipcMain.handle('dump:export', async (_e, payload) => {
     const ts = (metadata?.timestamp || new Date().toISOString()).replace(/[:]/g, '-');
     const fileName = `capture_${deviceId || 'device'}_${ts}.zip`;
     const dialogRes = await dialog.showSaveDialog({
-      title: 'Save GroundView ZIP',
+      title: 'Save Appkium Inspector ZIP',
       defaultPath: path.join(app.getPath('documents'), fileName),
       filters: [{ name: 'ZIP Files', extensions: ['zip'] }]
     });

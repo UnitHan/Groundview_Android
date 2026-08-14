@@ -51,11 +51,11 @@ export const ko: Translation = {
     },
     wireless: '무선',
     gvService: {
-      permTitle: '📱 GroundView Service 접근성 권한 필요',
+      permTitle: '📱 Appkium Inspector Service 접근성 권한 필요',
       permDesc: 'Compose 앱 지원을 위해 최초 1회 설정이 필요합니다.',
-      permGuide: '설정 → 접근성 → GroundView Service → 활성화',
+      permGuide: '설정 → 접근성 → Appkium Inspector Service → 활성화',
       permRetry: '활성화 후 Capture Screen을 다시 눌러주세요.',
-      enabled: '✅ GroundView Service 활성화됨 — Compose 앱 지원',
+      enabled: '✅ Appkium Inspector Service 활성화됨 — Compose 앱 지원',
     },
   },
   analyze: {
@@ -113,14 +113,14 @@ export const ko: Translation = {
       installed: 'Android Studio가 설치되어 있습니다.',
       notInstalled: 'Android Studio를 설치하면 ADB를 포함한 Platform Tools가 자동으로 제공됩니다.',
       guideTitle: '💡 권장 사항',
-      guideDesc: 'GroundView를 사용하기 전에 Android Studio를 설치하고 SDK Manager에서 Android SDK Platform-Tools 설치를 완료하면 별도 설정 없이 즉시 사용할 수 있습니다.',
+      guideDesc: 'Appkium Inspector를 사용하기 전에 Android Studio를 설치하고 SDK Manager에서 Android SDK Platform-Tools 설치를 완료하면 별도 설정 없이 즉시 사용할 수 있습니다.',
       downloadBtn: 'Android Studio 다운로드 →',
     },
     reDiagnose: '🔄 다시 진단',
     close: '닫기',
   },
   consent: {
-    title: 'GroundView에 오신 것을 환영합니다',
+    title: 'Appkium Inspector에 오신 것을 환영합니다',
     subtitle: '서비스를 이용하기 전에 아래 약관을 읽고 동의해 주세요.',
     infoTitle: '이 앱은 다음을 수행합니다',
     infoItems: [

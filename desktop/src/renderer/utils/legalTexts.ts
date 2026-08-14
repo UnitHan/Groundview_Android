@@ -1,10 +1,10 @@
 export const TERMS_OF_SERVICE = `이용약관
 
 제1조 (목적)
-본 약관은 QA Bulls(이하 "회사")가 제공하는 GroundView 소프트웨어(이하 "서비스")의 이용 조건 및 절차, 회사와 이용자 간의 권리·의무 및 책임 사항을 규정함을 목적으로 합니다.
+본 약관은 QA Bulls(이하 "회사")가 제공하는 Appkium Inspector 소프트웨어(이하 "서비스")의 이용 조건 및 절차, 회사와 이용자 간의 권리·의무 및 책임 사항을 규정함을 목적으로 합니다.
 
 제2조 (서비스의 성격)
-GroundView는 Android 기기의 화면을 캡처하고 UI 요소를 분석하는 테스트 자동화 도구입니다. 본 서비스는 소프트웨어 개발자 및 QA 엔지니어를 위한 전문 도구로 제공됩니다.
+Appkium Inspector는 Android 기기의 화면을 캡처하고 UI 요소를 분석하는 테스트 자동화 도구입니다. 본 서비스는 소프트웨어 개발자 및 QA 엔지니어를 위한 전문 도구로 제공됩니다.
 
 제3조 (이용자의 의무)
 1. 이용자는 본 서비스를 법령, 본 약관 및 공지사항에서 정한 사항을 준수하여 이용해야 합니다.
@@ -40,7 +40,7 @@ export const PRIVACY_POLICY = `개인정보처리방침
 QA Bulls(이하 "회사")는 이용자의 개인정보 보호를 중요시하며, 「개인정보 보호법」을 준수합니다.
 
 1. 수집하는 개인정보 항목
-회사는 GroundView 서비스 운영을 위해 다음의 정보를 처리합니다.
+회사는 Appkium Inspector 서비스 운영을 위해 다음의 정보를 처리합니다.
 - Gemini API Key: 이용자가 직접 입력한 Google Gemini API 인증 키
 - 화면 캡처 이미지: AI 분석 기능 이용 시 처리되는 Android 기기 화면 이미지
 
@@ -85,10 +85,10 @@ export const CONSENT_KEY = 'gv_consent_v1';
 export const TERMS_OF_SERVICE_EN = `Terms of Service
 
 Article 1 (Purpose)
-These Terms govern the use of GroundView software ("Service") provided by QA Bulls ("Company"), including terms of use, procedures, and the rights, obligations, and responsibilities between the Company and users.
+These Terms govern the use of Appkium Inspector software ("Service") provided by QA Bulls ("Company"), including terms of use, procedures, and the rights, obligations, and responsibilities between the Company and users.
 
 Article 2 (Nature of Service)
-GroundView is a test automation tool that captures Android device screens and analyzes UI elements. This Service is provided as a professional tool for software developers and QA engineers.
+Appkium Inspector is a test automation tool that captures Android device screens and analyzes UI elements. This Service is provided as a professional tool for software developers and QA engineers.
 
 Article 3 (User Obligations)
 1. Users must comply with applicable laws, these Terms, and notices when using the Service.
@@ -119,7 +119,7 @@ Provided by: QA Bulls`;
 export const PRIVACY_POLICY_EN = `Privacy Policy
 
 1. Personal Information Collected
-GroundView does not collect or store users' personal information on company servers. All data processed by the app is handled locally on the user's device.
+Appkium Inspector does not collect or store users' personal information on company servers. All data processed by the app is handled locally on the user's device.
 
 2. Use of Gemini API Key
 The Gemini API Key entered by the user is encrypted using PBKDF2-HMAC-SHA256 hashing and Fernet symmetric encryption, and stored only on the user's local device. The Company does not have access to API keys.

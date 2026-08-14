@@ -1,5 +1,6 @@
 import React from 'react';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
+import { useEscClose } from '../hooks/useEscClose';
 
 interface InfoModalProps {
   onClose: () => void;
@@ -8,6 +9,8 @@ interface InfoModalProps {
 
 export const InfoModal: React.FC<InfoModalProps> = ({ onClose, appVersion }) => {
   const [licenseView, setLicenseView] = React.useState<{ name: string; text: string } | null>(null);
+  // ESC: 라이선스 상세가 열려 있으면 그것부터 닫고, 아니면 모달 닫기
+  useEscClose(() => (licenseView ? setLicenseView(null) : onClose()));
 
   const ossLicenses = [
     {
@@ -167,7 +170,7 @@ SOFTWARE.`
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>GroundView 정보</div>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>Appkium Inspector 정보</div>
               <div style={{ color: '#9ca3af', fontSize: 12 }}>버전 {appVersion} · 만든 사람: QA Bulls</div>
             </div>
             <button

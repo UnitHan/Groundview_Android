@@ -19,7 +19,45 @@ export const buildEasyLocator = (node: any, platform: 'android' | 'ios') => {
     let badge = '⚠️  주의 필요';
     let caution = '';
 
-    if (safeNode.contentDesc) {
+    const isDynamicId = (id: string) => /[-_][0-9a-f]{4,}|temp|tmp/i.test(id || '');
+
+    // 🖱️ 승격: 선택 노드가 클릭 불가인데(예: Compose 텍스트 라벨) 클릭 가능한 상위 요소가 있으면
+    // 실제 탭 대상인 상위 요소로 로케이터를 만든다. 상위가 고유 식별자가 없으면
+    // "이 텍스트를 자식으로 갖는 클릭 가능 요소"로 잡는다.
+    const anc = safeNode.clickableAncestor;
+    const selfClickable = safeNode.clickable === true;
+    const childKey = safeNode.contentDesc
+      ? `description("${safeNode.contentDesc}")`
+      : safeNode.text
+      ? `text("${safeNode.text}")`
+      : null;
+    const promote =
+      !selfClickable &&
+      anc &&
+      (anc.contentDesc || (anc.resourceId && !isDynamicId(anc.resourceId)) || childKey);
+
+    if (promote) {
+      if (anc.contentDesc) {
+        selector = `new UiSelector().description("${anc.contentDesc}")`;
+        note = '🖱️ 클릭 가능한 상위 요소 (content-desc)';
+        stability = 'high';
+        badge = '✅ 초보자 추천';
+        caution = '선택한 텍스트는 클릭 불가 라벨 → 클릭 가능한 상위 요소로 자동 대체';
+      } else if (anc.resourceId && !isDynamicId(anc.resourceId)) {
+        selector = `new UiSelector().resourceId("${anc.resourceId}")`;
+        note = '🖱️ 클릭 가능한 상위 요소 (resource-id)';
+        stability = 'high';
+        badge = '✅ 초보자 추천';
+        caution = '선택한 텍스트는 클릭 불가 라벨 → 클릭 가능한 상위 요소로 자동 대체';
+      } else {
+        // 상위 요소에 고유 식별자 없음 → 자식 텍스트/desc 기준으로 클릭 가능 조상 지정
+        selector = `new UiSelector().clickable(true).childSelector(new UiSelector().${childKey})`;
+        note = '🖱️ 클릭 가능한 상위 요소 (자식 텍스트 기준)';
+        stability = 'medium';
+        badge = '⚠️  주의 필요';
+        caution = '선택 노드는 클릭 불가 라벨 — 이 텍스트를 포함한 클릭 가능 상위 요소를 탭';
+      }
+    } else if (safeNode.contentDesc) {
       // 🥇 최우선: content-desc
       selector = `new UiSelector().description("${safeNode.contentDesc}")`;
       note = '🥇 content-desc (가장 안정적)';

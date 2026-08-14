@@ -6,6 +6,7 @@ import { Overlay } from './Overlay';
 import { CodeModal } from './CodeModal';
 import { SettingsModal } from './SettingsModal';
 import { OcrModal } from './OcrModal';
+import { DeviceInfoModal } from './DeviceInfoModal';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
 import { generateLocators, LocatorSuggestion } from '../../../../core/src/locator';
 import { buildEasyLocator } from '../utils/locatorHelpers';
@@ -18,6 +19,7 @@ export const AnalyzePage: React.FC = () => {
   const [treeViewMode, setTreeViewMode] = React.useState<'tree' | 'list'>('list');
   const [showCodeModal, setShowCodeModal] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
+  const [showDeviceInfo, setShowDeviceInfo] = React.useState(false);
   const [showOcrResult, setShowOcrResult] = React.useState(false);
   const [ocrLoading, setOcrLoading] = React.useState(false);
   const [ocrData, setOcrData] = React.useState<{ error?: string; rawText?: string; source?: string }>({});
@@ -93,6 +95,18 @@ export const AnalyzePage: React.FC = () => {
           </button>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowDeviceInfo(true)} style={{
+            background: '#0ea5e9',
+            color: '#fff',
+            padding: '10px 14px',
+            border: 'none',
+            borderRadius: 10,
+            cursor: 'pointer',
+            fontWeight: 700,
+            ...pressableStyle
+          }} disabled={(state.selectedDevice?.platform || 'android') !== 'android'} {...pressableHandlers}>
+            📱 기기 정보
+          </button>
           <button onClick={() => setShowSettings(true)} style={{
             background: '#6366f1',
             color: '#fff',
@@ -248,6 +262,13 @@ export const AnalyzePage: React.FC = () => {
       )}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+
+      {showDeviceInfo && (
+        <DeviceInfoModal
+          deviceId={state.selectedDevice?.id || state.metaDeviceId || ''}
+          onClose={() => setShowDeviceInfo(false)}
+        />
+      )}
 
       {showOcrResult && (
         <OcrModal

@@ -62,12 +62,12 @@ export const Welcome: React.FC = () => {
       }}>
         <img 
           src={iconImage} 
-          alt="GroundView Icon"
+          alt="Appkium Inspector Icon"
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       </div>
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 32, fontWeight: 900, color: '#0f172a' }}>GroundView</div>
+        <div style={{ fontSize: 32, fontWeight: 900, color: '#0f172a' }}>Appkium Inspector</div>
         <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
           Mobile UI Capture & Locator Generator
         </div>

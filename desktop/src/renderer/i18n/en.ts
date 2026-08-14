@@ -51,11 +51,11 @@ export const en: Translation = {
     },
     wireless: 'Wireless',
     gvService: {
-      permTitle: '📱 GroundView Service Accessibility Permission Required',
+      permTitle: '📱 Appkium Inspector Service Accessibility Permission Required',
       permDesc: 'One-time setup required for Compose app support.',
-      permGuide: 'Settings → Accessibility → GroundView Service → Enable',
+      permGuide: 'Settings → Accessibility → Appkium Inspector Service → Enable',
       permRetry: 'Press Capture Screen again after enabling.',
-      enabled: '✅ GroundView Service Active — Compose App Support',
+      enabled: '✅ Appkium Inspector Service Active — Compose App Support',
     },
   },
   analyze: {
@@ -113,14 +113,14 @@ export const en: Translation = {
       installed: 'Android Studio is installed.',
       notInstalled: 'Installing Android Studio automatically provides Platform Tools including ADB.',
       guideTitle: '💡 Recommended',
-      guideDesc: 'Before using GroundView, install Android Studio and complete the Android SDK Platform-Tools installation via SDK Manager. You can then use GroundView without any additional configuration.',
+      guideDesc: 'Before using Appkium Inspector, install Android Studio and complete the Android SDK Platform-Tools installation via SDK Manager. You can then use Appkium Inspector without any additional configuration.',
       downloadBtn: 'Download Android Studio →',
     },
     reDiagnose: '🔄 Re-diagnose',
     close: 'Close',
   },
   consent: {
-    title: 'Welcome to GroundView',
+    title: 'Welcome to Appkium Inspector',
     subtitle: 'Please read and agree to the terms below before using the service.',
     infoTitle: 'This app does the following',
     infoItems: [

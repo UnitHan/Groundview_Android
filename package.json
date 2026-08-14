@@ -1,15 +1,15 @@
 {
   "name": "groundview",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "private": true,
-  "description": "GroundView desktop app (ADB/WDA capture, OCR, locator generator).",
+  "description": "Appkium Inspector desktop app (ADB/WDA capture, OCR, locator generator).",
   "author": {
     "name": "QA Bulls"
   },
   "main": "app/main.js",
   "build": {
     "appId": "com.groundview.app",
-    "productName": "GroundView",
+    "productName": "Appkium Inspector",
     "directories": {
       "output": "dist/electron"
     },
@@ -37,7 +37,9 @@
       {
         "from": "resources/adb",
         "to": "resources/adb",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources",
@@ -85,7 +87,7 @@
       "identityName": "QABulls.GroundView",
       "publisher": "CN=DBF2708E-1A7A-45A4-922A-4B40C76E2C11",
       "publisherDisplayName": "QA Bulls",
-      "displayName": "GroundView",
+      "displayName": "Appkium Inspector",
       "applicationId": "GroundView",
       "backgroundColor": "transparent",
       "languages": [
@@ -102,7 +104,7 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "GroundView",
+      "shortcutName": "Appkium Inspector",
       "include": "build/installer.nsh",
       "deleteAppDataOnUninstall": false,
       "warningsAsErrors": false,
@@ -166,5 +168,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "allowScripts": {
+    "electron@28.3.3": true,
+    "esbuild@0.21.5": true
   }
 }

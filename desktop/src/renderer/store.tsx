@@ -335,7 +335,7 @@ const setPlatform = (p: Platform) => {
     dispatch({ type: 'log', message: `[info] Capturing from ${state.selectedDevice.id}` });
     // GV Service 설치/활성화 대기 안내
     if (state.platform === 'android') {
-      dispatch({ type: 'status', message: '📱 GroundView Service 확인 중... (최초 실행 시 접근성 권한 활성화 필요)' });
+      dispatch({ type: 'status', message: '📱 Appkium Inspector Service 확인 중... (최초 실행 시 접근성 권한 활성화 필요)' });
       dispatch({ type: 'gvServiceStatus', status: 'unknown' });
     }
     const res = (await svc.capture(state.selectedDevice.id)) as CaptureResult;
@@ -357,7 +357,7 @@ const setPlatform = (p: Platform) => {
           : methodInfo;
       // GV Service fallback 안내
       if (res.captureMethod !== 'accessibility-service' && state.platform === 'android') {
-        dispatch({ type: 'log', message: '[warn] GroundView Service 미활성화 — uiautomator dump 사용 중. Compose 앱은 요소가 제한될 수 있습니다.' });
+        dispatch({ type: 'log', message: '[warn] Appkium Inspector Service 미활성화 — uiautomator dump 사용 중. Compose 앱은 요소가 제한될 수 있습니다.' });
         dispatch({ type: 'gvServiceStatus', status: 'waiting_permission' });
       } else if (res.captureMethod === 'accessibility-service') {
         dispatch({ type: 'gvServiceStatus', status: 'ready' });
@@ -685,7 +685,38 @@ export type UiNode = {
   uniqueText?: boolean;
   uniqueDesc?: boolean;
   screenshotPath?: string;
+  // 가장 가까운 클릭 가능 상위 요소의 스칼라 스냅샷 (순환참조 없음 — 직렬화 안전).
+  // Compose처럼 텍스트는 클릭 불가 라벨이고 클릭은 부모 View에 있는 경우 로케이터 승격에 사용.
+  clickableAncestor?: {
+    cls?: string;
+    text?: string;
+    resourceId?: string;
+    contentDesc?: string;
+    index?: number;
+    bounds?: string;
+  };
 };
+
+// 각 노드에 가장 가까운 클릭 가능 "상위" 요소(자기 자신 제외)의 스냅샷을 붙인다.
+function annotateClickableAncestor(
+  nodes: UiNode[],
+  ancestor?: UiNode['clickableAncestor']
+): void {
+  nodes.forEach((n) => {
+    n.clickableAncestor = ancestor;
+    const nextAncestor: UiNode['clickableAncestor'] = n.clickable
+      ? {
+          cls: n.cls,
+          text: n.text,
+          resourceId: n.resourceId,
+          contentDesc: n.contentDesc,
+          index: n.index,
+          bounds: n.bounds
+        }
+      : ancestor;
+    annotateClickableAncestor(n.children || [], nextAncestor);
+  });
+}
 
 function buildTree(xml: string): UiNode[] {
   const toBounds = (b?: string) => {
@@ -859,7 +890,9 @@ function buildTree(xml: string): UiNode[] {
     const compressed = compressChains(nodes);
     // Keep all nodes for rendering/overlay; filtering of meaningless large containers is handled in the Tree view only
     // to avoid dropping legitimate children.
-    return trimMeaninglessRoot(compressed);
+    const trimmed = trimMeaninglessRoot(compressed);
+    annotateClickableAncestor(trimmed, undefined);
+    return trimmed;
   } catch (e) {
     console.error('Failed to parse XML', e);
     return [];

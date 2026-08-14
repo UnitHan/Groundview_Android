@@ -78,7 +78,7 @@ export const DevicesPage: React.FC = () => {
     <>
       {envModalOpen && <EnvSetupModal onClose={() => { setEnvModalOpen(false); runDiagnose(); }} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, color: colors.textMain }}>GroundView</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: colors.textMain }}>Appkium Inspector</div>
         <img
           src={geminiLogo}
           alt="Gemini AI Logo"

@@ -25,7 +25,7 @@ class SetupActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "GroundView Service"
+            text = "Appkium Inspector Service"
             textSize = 24f
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
@@ -54,7 +54,7 @@ class SetupActivity : AppCompatActivity() {
         layout.addView(btn)
 
         val info = TextView(this).apply {
-            text = "\n설정 → 접근성 → GroundView Service → 활성화\n\n" +
+            text = "\n설정 → 접근성 → Appkium Inspector Service → 활성화\n\n" +
                     "활성화 후 연동:\n" +
                     "  adb forward tcp:9800 tcp:9800\n" +
                     "  curl http://127.0.0.1:9800/source"

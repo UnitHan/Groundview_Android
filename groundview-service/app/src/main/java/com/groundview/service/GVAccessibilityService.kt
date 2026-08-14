@@ -21,6 +21,10 @@ class GVAccessibilityService : AccessibilityService() {
         private const val TAG = "GVA11yService"
         const val HTTP_PORT = 9800
 
+        // 순회 안전 상한 — 다중 윈도우 병합 시 병적으로 큰 트리로 인한 행/타임아웃 방지
+        private const val MAX_DEPTH = 60
+        private const val MAX_NODES = 12000
+
         @Volatile
         private var instance: GVAccessibilityService? = null
 
@@ -69,48 +73,51 @@ class GVAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 모든 윈도우의 접근성 트리를 순회하여 uiautomator dump 호환 XML을 생성한다.
-     * 전략:
-     *  1. rootInActiveWindow — 현재 포커스된 앱 윈도우 (가장 신뢰도 높음)
-     *  2. TYPE_APPLICATION 윈도우 — 앱 윈도우만 필터링
-     *  3. 전체 윈도우 fallback
+     * 모든 상호작용 윈도우의 접근성 트리를 순회하여 uiautomator dump 호환 XML을 생성한다.
+     *
+     * rootInActiveWindow 하나만 덤프하면 포커스된 메인 윈도우만 잡히고
+     * 플로팅 팝업/다이얼로그/바텀시트(예: ChatGPT 첨부 모달)는 별도 윈도우라 누락된다.
+     * FLAG_RETRIEVE_INTERACTIVE_WINDOWS 덕에 접근 가능한 windows 전체를 순회해
+     * 메인 + 팝업 + 시스템 UI를 한 hierarchy에 병합한다.
+     * (GroundView 파서는 <hierarchy> 직속 다중 <node> 루트를 지원함.)
+     *
+     * z-order(layer) 오름차순으로 정렬해 뒤쪽(팝업/최상단 오버레이)이 나중에 오도록 한다.
+     * 우리 서비스 자체 오버레이 윈도우는 제외한다.
      */
     fun dumpToXml(): String {
+        // Compose 지연 semantics 대비 — 첫 조회 시 통짜 노드로 잡히는 문제를 서버측에서 흡수.
+        settleComposeIfNeeded()
+
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<hierarchy rotation=\"0\">\n")
 
-        var dumped = false
+        var dumpedAny = false
+        // 전체 윈도우에 걸친 노드 예산 (한 번의 덤프 총량 상한)
+        val budget = intArrayOf(MAX_NODES)
 
-        // 1순위: rootInActiveWindow — 현재 포커스 앱의 루트
-        val activeRoot = rootInActiveWindow
-        if (activeRoot != null && activeRoot.packageName?.toString() != packageName) {
-            dumpNode(activeRoot, sb, depth = 1)
-            activeRoot.recycle()
-            dumped = true
-        } else {
-            activeRoot?.recycle()
-        }
-
-        // 2순위: TYPE_APPLICATION 윈도우 (appkium 패턴)
-        if (!dumped) {
-            for (window in windows) {
-                if (window.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue
+        val wins = try { windows } catch (e: Exception) { null }
+        if (!wins.isNullOrEmpty()) {
+            val sorted = wins.sortedBy { it.layer }
+            for (window in sorted) {
+                if (budget[0] <= 0) break
                 val root = window.root ?: continue
+                // 우리 서비스 자체 윈도우/오버레이는 제외 (자기 UI가 트리에 섞이지 않도록)
                 if (root.packageName?.toString() == packageName) { root.recycle(); continue }
-                dumpNode(root, sb, depth = 1)
+                dumpNode(root, sb, depth = 1, index = 0, budget = budget)
                 root.recycle()
-                dumped = true
+                dumpedAny = true
             }
         }
 
-        // 3순위: 전체 윈도우 (시스템 UI 포함)
-        if (!dumped) {
-            for (window in windows) {
-                val root = window.root ?: continue
-                if (root.packageName?.toString() == packageName) { root.recycle(); continue }
-                dumpNode(root, sb, depth = 1)
-                root.recycle()
+        // fallback: windows 접근 불가/비어있으면 rootInActiveWindow 하나만
+        if (!dumpedAny) {
+            val activeRoot = rootInActiveWindow
+            if (activeRoot != null && activeRoot.packageName?.toString() != packageName) {
+                dumpNode(activeRoot, sb, depth = 1, index = 0, budget = budget)
+                activeRoot.recycle()
+            } else {
+                activeRoot?.recycle()
             }
         }
 
@@ -119,11 +126,66 @@ class GVAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Compose 지연 semantics 안정화.
+     *
+     * Jetpack Compose는 접근성 트리를 비동기(~100ms 주기)로 지연 생성한다.
+     * 접근성 서비스가 화면을 처음 조회하면 semantics가 아직 안 올라와
+     * ComposeView 하나가 화면 전체를 덮는 "통짜 노드"로만 잡힌다.
+     * 조회를 한 번 하면 delegate가 활성화되므로, 통짜 상태가 감지되면
+     * 짧게 대기 후 재확인하여 첫 캡처부터 완전한 트리가 나오도록 한다.
+     *
+     * Compose가 없는 화면은 대기하지 않는다(불필요한 지연 방지).
+     */
+    private fun settleComposeIfNeeded() {
+        repeat(4) {
+            if (!isComposeCollapsed()) return
+            try { Thread.sleep(150) } catch (e: InterruptedException) { return }
+        }
+    }
+
+    /**
+     * 활성 윈도우가 "Compose 통짜" 상태인지 휴리스틱 판정.
+     * ComposeView(또는 compose 클래스)가 존재하지만 의미 있는 노드
+     * (text/content-desc/clickable)가 거의 없으면 semantics 미생성으로 간주.
+     */
+    private fun isComposeCollapsed(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        var hasCompose = false
+        var meaningful = 0
+        var visited = 0
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        try {
+            while (stack.isNotEmpty() && visited < 250) {
+                val n = stack.removeLast()
+                visited++
+                val cn = n.className?.toString() ?: ""
+                if (cn.contains("ComposeView") || cn.contains("compose", ignoreCase = true)) hasCompose = true
+                if (!n.text.isNullOrEmpty() || !n.contentDescription.isNullOrEmpty() || n.isClickable) meaningful++
+                val cc = n.childCount
+                for (i in 0 until cc) {
+                    n.getChild(i)?.let { stack.addLast(it) }
+                }
+                if (n !== root) n.recycle()
+            }
+        } catch (e: Exception) {
+            // 조회 중 트리가 무효화될 수 있음 — 안전하게 미확정 처리
+        } finally {
+            while (stack.isNotEmpty()) { val n = stack.removeLast(); if (n !== root) n.recycle() }
+            root.recycle()
+        }
+        return hasCompose && meaningful < 3
+    }
+
+    /**
      * AccessibilityNodeInfo를 uiautomator dump 호환 XML로 재귀 직렬화.
      * 속성명은 uiautomator dump와 동일하게 맞춰서 GroundView의 buildTree()가
      * 수정 없이 파싱할 수 있도록 한다.
      */
-    private fun dumpNode(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
+    private fun dumpNode(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int, index: Int, budget: IntArray) {
+        if (budget[0] <= 0) return
+        budget[0]--
+
         val indent = "  ".repeat(depth)
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
@@ -137,7 +199,7 @@ class GVAccessibilityService : AccessibilityService() {
 
         sb.append(indent)
         sb.append("<node")
-        sb.append(" index=\"${node.indexInParent()}\"")
+        sb.append(" index=\"$index\"")
         sb.append(" text=\"$text\"")
         sb.append(" resource-id=\"$rid\"")
         sb.append(" class=\"$cls\"")
@@ -156,30 +218,19 @@ class GVAccessibilityService : AccessibilityService() {
         sb.append(" bounds=\"$boundsStr\"")
 
         val childCount = node.childCount
-        if (childCount == 0) {
+        // 깊이 상한 초과 또는 자식 없음 → self-close (깊이 초과 시 하위 트리는 절단)
+        if (childCount == 0 || depth >= MAX_DEPTH) {
             sb.append(" />\n")
         } else {
             sb.append(">\n")
             for (i in 0 until childCount) {
+                if (budget[0] <= 0) break
                 val child = node.getChild(i) ?: continue
-                dumpNode(child, sb, depth + 1)
+                dumpNode(child, sb, depth + 1, index = i, budget = budget)
                 child.recycle()
             }
             sb.append(indent).append("</node>\n")
         }
-    }
-
-    /** indexInParent — API에 없으므로 부모 기준 추정 (fallback 0) */
-    private fun AccessibilityNodeInfo.indexInParent(): Int {
-        val p = parent ?: return 0
-        for (i in 0 until p.childCount) {
-            val c = p.getChild(i)
-            val same = c?.hashCode() == this.hashCode()
-            c?.recycle()
-            if (same) { p.recycle(); return i }
-        }
-        p.recycle()
-        return 0
     }
 
     private fun escXml(s: String): String =

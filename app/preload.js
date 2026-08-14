@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('groundview', {
     setPath: (bin) => ipcRenderer.invoke('adb:setPath', bin),
     getPath: () => ipcRenderer.invoke('adb:getPath'),
     scan: () => ipcRenderer.invoke('adb:scan'),
-    autoDetect: () => ipcRenderer.invoke('adb:autoDetect')
+    autoDetect: () => ipcRenderer.invoke('adb:autoDetect'),
+    deviceInfo: (id) => ipcRenderer.invoke('adb:deviceInfo', id)
   },
   ios: {
     listDevices: () => ipcRenderer.invoke('ios:listDevices'),

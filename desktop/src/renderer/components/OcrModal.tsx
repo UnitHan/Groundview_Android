@@ -1,6 +1,7 @@
 import React from 'react';
 import { pressableStyle, pressableHandlers } from '../utils/styles';
 import { copyToClipboard } from '../utils/locatorHelpers';
+import { useEscClose } from '../hooks/useEscClose';
 
 interface OcrModalProps {
   error?: string;
@@ -10,6 +11,7 @@ interface OcrModalProps {
 }
 
 export const OcrModal: React.FC<OcrModalProps> = ({ error, rawText, source, onClose }) => {
+  useEscClose(onClose);
   const extractPlainText = (html: string) => {
     const div = document.createElement('div');
     div.innerHTML = html;

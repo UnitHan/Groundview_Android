@@ -1,5 +1,18 @@
 export {};
 
+export interface DeviceInfo {
+  udid: string;
+  wireless?: boolean;
+  manufacturer?: string;
+  model?: string;
+  androidVersion?: string;
+  sdk?: string;
+  screenSize?: string;
+  density?: string;
+  appPackage?: string;
+  appActivity?: string;
+}
+
 declare global {
   interface Window {
     groundview?: {
@@ -11,6 +24,7 @@ declare global {
         getPath: () => Promise<string | undefined>;
         scan: () => Promise<string[]>;
         autoDetect: () => Promise<{ ok: boolean; path?: string; all: string[] }>;
+        deviceInfo: (id: string) => Promise<{ ok: boolean; info?: DeviceInfo; error?: string }>;
       };
       ios: {
         listDevices: () => Promise<any>;
