@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('groundview', {
+  platform: process.platform,
   adb: {
     listDevices: () => ipcRenderer.invoke('adb:listDevices'),
     capture: (id) => ipcRenderer.invoke('adb:capture', id),

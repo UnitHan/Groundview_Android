@@ -37,6 +37,16 @@ function killProc(ps) {
   try {
     if (process.platform === 'win32' && ps.pid) {
       spawn('taskkill', ['/pid', String(ps.pid), '/T', '/F'], { windowsHide: true });
+    } else if (ps.pid) {
+      // macOS/Linux: adb is spawned with `detached: true`, so the child is its
+      // own process-group leader. Signalling the negative pid kills the whole
+      // group, reaping any child (e.g. a forked transport helper) that would
+      // otherwise be orphaned and keep holding the device transport → "ADB offline".
+      try {
+        process.kill(-ps.pid, 'SIGKILL');
+      } catch {
+        ps.kill('SIGKILL');
+      }
     } else {
       ps.kill('SIGKILL');
     }
@@ -55,12 +65,16 @@ function wrapSpawnError(err, cmd, args) {
 }
 
 function adbSpawnOptions() {
+  // On posix, run adb in its own process group so killProc() can reap the whole
+  // tree via process.kill(-pid). No-op on Windows, where taskkill /T handles it.
+  const detached = process.platform !== 'win32';
   if (!adbBin || adbBin === 'adb' || !path.isAbsolute(adbBin)) {
-    return { windowsHide: true };
+    return { windowsHide: true, detached };
   }
   const adbDir = path.dirname(adbBin);
   return {
     windowsHide: true,
+    detached,
     cwd: adbDir,
     env: {
       ...process.env,

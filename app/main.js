@@ -9,7 +9,7 @@ const adb = require('./services/adbService');
 const wda = require('./services/wdaService');
 const fsSync = require('fs');
 const os = require('os');
-const { exec, execSync, spawn, spawnSync } = require('child_process');
+const { execSync, spawn, spawnSync } = require('child_process');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
@@ -738,6 +738,12 @@ const resolvePythonBin = () => {
 
   add(process.env.PYTHON_BIN);
 
+  // App-managed venv (created on first run on macOS/Linux) takes priority once
+  // it exists, so the backend reuses it instead of re-probing system python.
+  if (process.platform !== 'win32') {
+    add(managedVenvPython());
+  }
+
   const roots = [process.cwd(), path.join(__dirname, '..')];
   if (process.resourcesPath) roots.push(process.resourcesPath);
   const venvDirs = ['.venv', 'venv'];
@@ -940,6 +946,60 @@ const ensurePythonDependencies = async (python, writeLog) => {
   }
 };
 
+// Path to the app-managed virtualenv used on macOS/Linux when no ready
+// interpreter (project .venv / Windows bundle) is available.
+const managedVenvDir = () => path.join(effectiveUserDataPath, 'py-venv');
+const managedVenvPython = () => {
+  const dir = managedVenvDir();
+  return process.platform === 'win32'
+    ? path.join(dir, 'Scripts', 'python.exe')
+    : path.join(dir, 'bin', 'python3');
+};
+
+// True if `python` points at a virtualenv (has a pyvenv.cfg two levels up) or
+// the Windows embeddable bundle — i.e. a private interpreter we may pip-install
+// into safely, as opposed to a shared system python.
+const isVenvOrBundlePython = (python) => {
+  const cmd = python && python.cmd ? python.cmd : '';
+  if (!cmd) return false;
+  if (cmd.toLowerCase().includes('python-bundle')) return true;
+  try {
+    const cfg = path.join(path.dirname(path.dirname(cmd)), 'pyvenv.cfg');
+    return fsSync.existsSync(cfg);
+  } catch {
+    return false;
+  }
+};
+
+// Create (once) an app-managed venv from a base system python and return its
+// interpreter descriptor, or null on failure. Idempotent: reused on later runs.
+const ensureManagedVenv = async (basePython, writeLog) => {
+  const venvPy = managedVenvPython();
+  if (fsSync.existsSync(venvPy)) {
+    await writeLog(`Using managed venv: ${venvPy}`);
+    return { cmd: venvPy, prefixArgs: [] };
+  }
+  const dir = managedVenvDir();
+  await writeLog(`Creating managed venv at ${dir} using ${basePython.cmd} ...`);
+  try {
+    const res = spawnSync(
+      basePython.cmd,
+      [...(basePython.prefixArgs || []), '-m', 'venv', dir],
+      { windowsHide: true, encoding: 'utf8', timeout: 120000 }
+    );
+    if (res.status !== 0 || !fsSync.existsSync(venvPy)) {
+      const msg = `${res.stdout || ''}\n${res.stderr || ''}`.trim();
+      await writeLog(`Managed venv creation failed: ${msg.slice(0, 300)}`);
+      return null;
+    }
+    await writeLog('Managed venv created.');
+    return { cmd: venvPy, prefixArgs: [] };
+  } catch (err) {
+    await writeLog(`Managed venv creation error: ${err.message}`);
+    return null;
+  }
+};
+
 // Start Python backend server
 const startPythonServer = async () => {
   const logPath = logFile();
@@ -952,13 +1012,25 @@ const startPythonServer = async () => {
   };
 
   // Find Python binary
-  const python = resolvePythonBin();
+  let python = resolvePythonBin();
   if (!python) {
     await writeServerLog('ERROR: Python 3.10+ not found');
     return { ok: false, error: 'Python 3.10+ 실행 파일을 찾지 못했습니다.\n\nPython 3.10 이상을 설치해주세요: https://www.python.org/downloads/' };
   }
 
   await writeServerLog(`Found Python: ${python.cmd} ${python.prefixArgs?.join(' ') || ''}`);
+
+  // macOS/Linux: there is no bundled Python (that path is Windows-only). If the
+  // interpreter we resolved is a bare system python (not a venv or the Windows
+  // bundle), route dependency installation into an app-managed venv instead of
+  // installing into the system interpreter. This avoids PEP 668
+  // "externally-managed-environment" pip failures on modern macOS/Homebrew
+  // Python and never mutates the user's system site-packages. In dev the
+  // resolved python is already the project .venv, so this is a no-op.
+  if (process.platform !== 'win32' && !isVenvOrBundlePython(python)) {
+    const managed = await ensureManagedVenv(python, writeServerLog);
+    if (managed) python = managed;
+  }
 
   // Check and install dependencies
   const depsResult = await ensurePythonDependencies(python, writeServerLog);
@@ -1488,20 +1560,20 @@ ipcMain.handle('dump:pick', async () => {
   lastZipDir = path.dirname(filePath);
   const tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'groundview-import-'));
   try {
-    // unzip to tmp
-    const ps = [
-      'Expand-Archive',
-      '-Path',
-      `"${filePath}"`,
-      '-DestinationPath',
-      `"${tmpDir}"`,
-      '-Force'
-    ].join(' ');
+    // Extract to tmp. Windows has no `unzip`, macOS/Linux has no `powershell`,
+    // so branch on platform. spawn (not exec) avoids shell-quoting issues with
+    // paths that contain spaces.
     await new Promise((resolve, reject) => {
-      exec(`powershell -Command ${ps}`, { windowsHide: true }, (err, stdout, stderr) => {
-        if (err) return reject(new Error(stderr || err.message));
-        resolve(stdout);
-      });
+      const child = process.platform === 'win32'
+        ? spawn('powershell', [
+            '-NoProfile', '-Command',
+            `Expand-Archive -Path "${filePath}" -DestinationPath "${tmpDir}" -Force`
+          ], { windowsHide: true })
+        : spawn('unzip', ['-o', filePath, '-d', tmpDir], { windowsHide: true });
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('error', reject);
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr || `exit ${code}`)));
     });
   } catch (e) {
     return { ok: false, error: `unzip failed: ${e.message}` };
@@ -1579,23 +1651,26 @@ ipcMain.handle('dump:export', async (_e, payload) => {
       return { ok: false, error: 'save canceled' };
     }
     const zipPath = dialogRes.filePath;
-    const ps = [
-      'Compress-Archive',
-      '-Path',
-      `"${path.join(tmpDir, '*')}"`,
-      '-DestinationPath',
-      `"${zipPath}"`,
-      '-Force'
-    ].join(' ');
+    // Archive the tmp dir contents (files at zip root). Windows uses
+    // Compress-Archive; macOS/Linux use `zip`. Compress-Archive -Force
+    // overwrites, so on posix remove any existing target first (zip would
+    // otherwise append to it). Run zip with cwd=tmpDir so entries are stored
+    // at the archive root, matching the Windows layout.
     await new Promise((resolve, reject) => {
-      exec(
-        `powershell -Command ${ps}`,
-        { windowsHide: true },
-        (err, stdout, stderr) => {
-          if (err) return reject(new Error(stderr || err.message));
-          resolve(stdout);
-        }
-      );
+      let child;
+      if (process.platform === 'win32') {
+        child = spawn('powershell', [
+          '-NoProfile', '-Command',
+          `Compress-Archive -Path "${path.join(tmpDir, '*')}" -DestinationPath "${zipPath}" -Force`
+        ], { windowsHide: true });
+      } else {
+        try { fsSync.rmSync(zipPath, { force: true }); } catch { /* ignore */ }
+        child = spawn('zip', ['-r', '-X', zipPath, '.'], { cwd: tmpDir, windowsHide: true });
+      }
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.on('error', reject);
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error(stderr || `exit ${code}`)));
     });
     return { ok: true, path: zipPath };
   } catch (e) {
@@ -1982,15 +2057,22 @@ app.on('before-quit', () => {
   
   // Kill ADB server and related processes
   try {
-    const { execSync } = require('child_process');
-    
-    // Stop ADB server gracefully first
+    const { execSync, execFileSync } = require('child_process');
+
+    // Stop ADB server gracefully first. Use the adb binary the app actually
+    // resolved rather than bare 'adb' on PATH — on macOS the user often relies
+    // on a downloaded/SDK platform-tools adb that isn't on PATH, in which case
+    // 'adb kill-server' would silently no-op and leave the server (and the
+    // spawned adb processes) running after quit. kill-server cleanly terminates
+    // the singleton server on all platforms, so no darwin-specific pkill is
+    // needed (and pkill would also kill adb servers the user started elsewhere).
     try {
-      execSync('adb kill-server', { timeout: 3000, windowsHide: true });
+      const adbBin = adb.getAdbPath() || 'adb';
+      execFileSync(adbBin, ['kill-server'], { timeout: 3000, windowsHide: true });
     } catch {
       /* ignore if adb not found or already stopped */
     }
-    
+
     // Force kill any remaining adb processes on Windows
     if (process.platform === 'win32') {
       try {

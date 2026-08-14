@@ -2,6 +2,18 @@
 
 ### 주요 변경사항
 
+**macOS 지원 (단일 코드베이스에서 Windows/macOS 동시 빌드)**
+- ADB 타임아웃 프로세스 정리: macOS/Linux에서 프로세스 그룹 단위 강제 종료(detached spawn)로 고아 adb 방지
+- 앱 종료 시 앱이 실제 사용하는 adb 경로로 `kill-server` 실행 (PATH에 adb가 없어도 정리됨)
+- Python 런타임: 번들 파이썬이 없는 macOS/Linux에서 시스템 `python3` 기반 **전용 venv 자동 생성** — 시스템 site-packages 오염/PEP 668 오류 없음
+- 덤프 ZIP 가져오기/내보내기를 플랫폼별로 분기 (`unzip`/`zip`), 기존 PowerShell 전용 경로 제거
+- `dist:mac` 빌드 스크립트 + `build.mac`(icns 아이콘·hardenedRuntime·entitlements·arm64/x64 dmg/zip) 추가
+- `npm run dev` 크로스플랫폼화 (`dev:py` 런처가 venv/`python3` 자동 해석)
+- 환경 설정 진단 모달에 macOS용 ADB 설치 안내(Homebrew/SDK 경로) 추가
+- Pillow 10.3.0 → 10.4.0 (Python 3.13 wheel 지원, Windows 3.10 번들도 계속 지원)
+
+
+
 **제품명 변경: GroundView → Appkium Inspector**
 - 앱 표시명, 설치 프로그램(NSIS/MSIX) 표시명, 바로가기 이름 변경
 - Android 접근성 서비스 표시명 변경 (`Appkium Inspector Service`)

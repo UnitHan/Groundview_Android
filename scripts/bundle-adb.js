@@ -72,6 +72,17 @@ function findSdkPlatformTools() {
 }
 
 function main() {
+  // macOS / Linux: the whole reason this script exists is the Windows MSIX
+  // 0xC0000135 (STATUS_DLL_NOT_FOUND) sandbox issue — it does not apply on other
+  // platforms. There the app uses the system / SDK / downloaded adb directly, so
+  // bundling is unnecessary (and would only bloat the .dmg and add an Apache-2.0
+  // redistribution obligation). dist:mac deliberately does NOT call this script;
+  // if it is invoked anyway, skip cleanly instead of failing on adb.exe lookup.
+  if (process.platform !== 'win32') {
+    console.log(`ADB 번들링 생략: ${process.platform} 에서는 시스템 adb를 사용합니다 (MSIX DLL 문제 없음).`);
+    return;
+  }
+
   const projectRoot = path.resolve(__dirname, '..');
   const targetDir = path.join(projectRoot, 'resources', 'adb');
 

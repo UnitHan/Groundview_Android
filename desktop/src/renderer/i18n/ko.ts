@@ -12,7 +12,7 @@ export const ko: Translation = {
     },
     adb: {
       desc: 'Android 기기 연결에 사용됩니다. Android Studio 설치 시 자동 감지됩니다.',
-      placeholder: 'adb.exe 경로 (예: C:\\Users\\...\\platform-tools\\adb.exe)',
+      placeholder: 'adb 실행 파일 경로 (예: ~/Library/Android/sdk/platform-tools/adb 또는 C:\\...\\platform-tools\\adb.exe)',
       scanning: '탐색 중...',
       autoDetect: '자동 감지',
       save: '저장',
@@ -74,6 +74,7 @@ export const ko: Translation = {
       found: (path) => path || 'ADB 감지됨',
       notFound: 'ADB가 설치되어 있지 않거나 경로를 찾을 수 없습니다.',
       autoDownloadNote: '자동 다운로드: Google Android Platform Tools를 홈 디렉터리에 다운로드합니다.',
+      macInstallHint: 'macOS에서는 터미널에서 "brew install --cask android-platform-tools" 로 설치하거나, Android Studio의 SDK(~/Library/Android/sdk/platform-tools)를 사용할 수도 있습니다.',
       downloadSuccess: '✅ ADB 다운로드 및 설치 완료! 새로고침을 눌러주세요.',
       downloading: '다운로드 중...',
       downloadBtn: '⬇ ADB 자동 다운로드',

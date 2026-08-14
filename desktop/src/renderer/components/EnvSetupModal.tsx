@@ -199,6 +199,11 @@ export const EnvSetupModal: React.FC<Props> = ({ onClose }) => {
                   <div style={{ fontSize: 13, color: '#7c3aed', background: '#f5f3ff', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
                     {t.env.adb.autoDownloadNote}
                   </div>
+                  {(window as any).groundview?.platform === 'darwin' && (t.env.adb as any).macInstallHint && (
+                    <div style={{ fontSize: 13, color: '#0369a1', background: '#f0f9ff', borderRadius: 8, padding: '10px 12px', lineHeight: 1.6, fontFamily: 'ui-monospace, monospace' }}>
+                      {(t.env.adb as any).macInstallHint}
+                    </div>
+                  )}
                   {downloadResult && (
                     <div style={{
                       fontSize: 13,

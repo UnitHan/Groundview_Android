@@ -12,7 +12,7 @@ export const en: Translation = {
     },
     adb: {
       desc: 'Used for Android device connections. Auto-detected when Android Studio is installed.',
-      placeholder: 'adb.exe path (e.g., C:\\Users\\...\\platform-tools\\adb.exe)',
+      placeholder: 'adb path (e.g., ~/Library/Android/sdk/platform-tools/adb or C:\\...\\platform-tools\\adb.exe)',
       scanning: 'Scanning...',
       autoDetect: 'Auto Detect',
       save: 'Save',
@@ -74,6 +74,7 @@ export const en: Translation = {
       found: (path) => path || 'ADB detected',
       notFound: 'ADB is not installed or the path cannot be found.',
       autoDownloadNote: 'Auto download: Downloads Google Android Platform Tools to your home directory.',
+      macInstallHint: 'On macOS you can also install via Terminal with "brew install --cask android-platform-tools", or use Android Studio\'s SDK (~/Library/Android/sdk/platform-tools).',
       downloadSuccess: '✅ ADB downloaded and installed! Click Re-diagnose.',
       downloading: 'Downloading...',
       downloadBtn: '⬇ Auto Download ADB',
