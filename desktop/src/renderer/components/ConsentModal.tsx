@@ -202,8 +202,8 @@ export const ConsentModal: React.FC<ConsentModalProps> = ({ onAccept }) => {
             fontWeight: 700,
             fontSize: 14,
             cursor: canAccept ? 'pointer' : 'not-allowed',
-            transition: 'background 0.15s',
-            ...pressableStyle
+            ...pressableStyle,
+            transition: `${pressableStyle.transition}, background 0.15s`
           }}
           {...(canAccept ? pressableHandlers : {})}
         >

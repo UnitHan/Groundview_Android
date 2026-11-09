@@ -72,6 +72,7 @@ export interface Translation {
       found: (path: string) => string;
       notFound: string;
       autoDownloadNote: string;
+      macInstallHint: string;
       downloadSuccess: string;
       downloading: string;
       downloadBtn: string;

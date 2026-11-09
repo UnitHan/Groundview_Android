@@ -1,3 +1,15 @@
+## Unreleased — 저장소 및 문서 정리 (2026-11-09)
+
+- README를 Appkium Inspector v0.0.10 기준으로 재구성: 기능, 지원 범위, 실행·검사·패키징 안내
+- macOS 포팅 계획을 현재 개발·배포 가이드로 갱신하고 과거 분석·심사 기록의 기준 시점 명시
+- 미사용 화면 백업·임시 파일·중복 이미지·라이선스 백업·Python 설치 파일 제거
+- 개발자별 Android SDK 경로를 Git 관리에서 제외
+- Vitest 대상 범위 정리, TypeScript 오류 수정, `typecheck`·`check` 명령 추가
+
+기존 v0.0.10 설치 파일을 재배포한 것은 아닙니다. 실기기·외부 AI·설치 프로그램 검증은 별도로 수행합니다.
+
+---
+
 ## v0.0.10 - Appkium Inspector 리브랜딩 & 팝업/Compose 탐지 정확도 개선
 
 ### 주요 변경사항
@@ -49,8 +61,9 @@
 - 리포지토리 루트의 셸 리다이렉트 사고로 생성된 빈 파일 제거
 
 ### 시스템 요구사항
-- Windows 10/11 x64
-- Python 3.10+ (자동 설치)
+- Windows 10/11 x64 또는 macOS (Apple Silicon / Intel)
+- Windows 배포: 빌드 시 Python 번들 포함
+- macOS 배포: 시스템 Python 3.10+ 및 최초 의존성 설치용 네트워크
 - ADB (Android Debug Bridge)
 
 ---

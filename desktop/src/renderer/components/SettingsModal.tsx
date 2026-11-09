@@ -107,6 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
     setIsScanning(true);
     setAdbStatus(null);
     try {
+      if (!window.groundview) throw new Error('ADB is only available in the desktop app.');
       const result = await window.groundview.adb.autoDetect();
       if (result?.ok && result.path) {
         setAdbPath(result.path);
@@ -124,6 +125,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const handleAdbSave = async () => {
     if (!adbPath.trim()) return;
     try {
+      if (!window.groundview) throw new Error('ADB is only available in the desktop app.');
       await window.groundview.adb.setPath(adbPath.trim());
       setAdbStatus({ type: 'success', message: t.settings.adb.pathSaved });
     } catch (e) {

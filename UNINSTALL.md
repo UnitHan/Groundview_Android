@@ -1,132 +1,36 @@
-# GroundView 완전 제거 가이드
+# Appkium Inspector 제거 및 데이터 정리
 
-## 🗑️ 윈도우에서 완전히 삭제하기
+앱을 종료한 뒤 운영체제의 기본 제거 방법을 사용합니다. 설정·API 키·캡처가 필요한 경우 먼저 보관하세요. 사용자 데이터 삭제 후에는 설정을 다시 입력해야 합니다.
 
-GroundView를 제거해도 일부 파일이 남아있을 수 있습니다. 완전히 삭제하려면 아래 단계를 따르세요.
+## Windows
 
-### 1️⃣ 프로그램 제거
+설정 → 앱 → 설치된 앱에서 **Appkium Inspector**를 제거합니다. 이전 버전은 **GroundView**라는 이름으로 표시될 수 있습니다.
 
-**방법 A: 설정에서 제거**
-```
-설정 > 앱 > 설치된 앱 > GroundView > 제거
-```
+설치 프로그램의 제거 동작과 별개로, 완전 초기화가 필요하면 다음 경로를 확인하고 해당 앱의 데이터만 삭제합니다.
 
-**방법 B: 제어판에서 제거**
-```
-제어판 > 프로그램 및 기능 > GroundView > 제거
-```
+| 경로 | 내용 |
+| --- | --- |
+| `%APPDATA%\Appkium Inspector` | 현재 제품의 설정·로그·런타임 데이터 |
+| `%APPDATA%\GroundView` | 이전 제품명으로 저장된 데이터 |
+| `%LOCALAPPDATA%\Appkium Inspector`, `%LOCALAPPDATA%\GroundView` | 해당 경로가 존재하는 경우 캐시 등 |
 
-### 2️⃣ 사용자 데이터 수동 삭제
+MSIX로 설치했다면 사용자 데이터가 패키지별 경로로 리디렉션될 수 있습니다. 위 경로만 삭제했다고 완전 제거로 판단하지 말고 Windows의 해당 앱 설정도 확인하세요.
 
-제거 시 대화상자에서 "예"를 선택하면 자동으로 삭제되지만, 그렇지 않은 경우 아래 폴더들을 수동으로 삭제하세요:
+기존 `clean_groundview.bat`·`clean_groundview.ps1`은 구 제품명 경로 중심의 스크립트입니다. 현재 제품의 모든 데이터 제거를 보장하지 않습니다.
 
-#### 📂 삭제할 폴더 목록
+## macOS
 
-```batch
-# 1. 앱 설정 및 데이터 (API Key, 로그 등)
-%APPDATA%\GroundView
+응용 프로그램 폴더에서 **Appkium Inspector.app**을 휴지통으로 이동합니다. 사용자 데이터 초기화가 필요하면 다음 경로를 확인합니다.
 
-# 2. 캐시 및 임시 파일
-%LOCALAPPDATA%\GroundView
+- `~/Library/Application Support/Appkium Inspector`
+- `~/Library/Application Support/GroundView` (이전 버전)
+- `~/Library/Caches/Appkium Inspector`, `~/Library/Caches/GroundView`
+- `~/Library/Logs/Appkium Inspector`, `~/Library/Logs/GroundView`
 
-# 3. PaddleOCR 모델 캐시 (선택사항)
-%USERPROFILE%\.paddleocr
-```
+저장소의 `./clean_appkium.sh`는 확인 입력 후 현재·이전 제품명 데이터, 과거 PaddleOCR 캐시, 개발용 `user-data/`를 삭제합니다. 앱 자체나 사용자가 다른 위치에 저장한 ZIP 파일은 제거하지 않습니다.
 
-#### 🖥️ 실제 경로 예시
+## 개발 데이터 및 Android 서비스
 
-```
-C:\Users\[사용자명]\AppData\Roaming\GroundView
-C:\Users\[사용자명]\AppData\Local\GroundView
-C:\Users\[사용자명]\.paddleocr
-```
+개발 실행 데이터는 저장소의 `user-data/`에 있습니다. 소스나 Git 커밋에는 포함하지 않습니다. 직접 내보낸 ZIP은 저장한 위치에서 별도로 관리합니다.
 
-### 3️⃣ 빠른 삭제 스크립트
-
-**PowerShell로 한 번에 삭제** (관리자 권한 불필요)
-
-```powershell
-# PowerShell 관리자 모드에서 실행
-Remove-Item -Path "$env:APPDATA\GroundView" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$env:LOCALAPPDATA\GroundView" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$env:USERPROFILE\.paddleocr" -Recurse -Force -ErrorAction SilentlyContinue
-Write-Host "GroundView 데이터가 삭제되었습니다." -ForegroundColor Green
-```
-
-**배치 파일로 삭제**
-
-위 스크립트를 `clean_groundview.bat` 파일로 저장하고 실행하세요.
-
----
-
-## 📝 저장되는 데이터 상세
-
-### 보존되는 데이터
-
-| 폴더 | 내용 | 크기 |
-|------|------|------|
-| `%APPDATA%\GroundView\` | • settings.json (API Key 암호화)<br>• groundview.log<br>• 앱 설정 | ~100KB |
-| `%LOCALAPPDATA%\GroundView\` | • GPU 캐시<br>• IndexedDB<br>• 임시 파일 | ~10MB |
-| `%USERPROFILE%\.paddleocr\` | • OCR 모델 파일<br>• 추론 캐시 | ~50-200MB |
-
-### 삭제되는 데이터
-
-- **프로그램 파일**: `C:\Program Files\GroundView\` (자동 삭제)
-- **바로가기**: 시작 메뉴, 바탕화면 (자동 삭제)
-
----
-
-## ⚠️ 주의사항
-
-### 🔐 API Key 백업
-삭제 전에 Gemini API Key를 별도로 저장해두세요:
-```
-설정 > API Key > 복사
-```
-
-### 📦 ZIP 파일 백업
-저장한 캡처 ZIP 파일들을 백업하세요.
-
-### 🔄 재설치 시
-재설치 후에는 API Key를 다시 입력해야 합니다.
-
----
-
-## 🐧 Linux/macOS에서 제거
-
-### Linux
-```bash
-# 프로그램 제거
-sudo apt remove groundview  # 또는 dpkg -r groundview
-
-# 사용자 데이터 삭제
-rm -rf ~/.config/GroundView
-rm -rf ~/.cache/GroundView
-rm -rf ~/.paddleocr
-```
-
-### macOS
-```bash
-# 프로그램 제거
-rm -rf /Applications/GroundView.app
-
-# 사용자 데이터 삭제
-rm -rf ~/Library/Application\ Support/GroundView
-rm -rf ~/Library/Caches/GroundView
-rm -rf ~/Library/Logs/GroundView
-rm -rf ~/.paddleocr
-```
-
----
-
-## 📞 문제 해결
-
-- **삭제 실패**: 앱이 실행 중인지 확인하고 종료 후 재시도
-- **권한 오류**: PowerShell/CMD를 관리자 권한으로 실행
-- **폴더가 보이지 않음**: 파일 탐색기에서 "숨김 항목" 표시 활성화
-
----
-
-<div align="center">
-  <sub>완전 제거 후에도 언제든 다시 설치할 수 있습니다! 😊</sub>
-</div>
+Android 기기에 설치된 **Appkium Inspector Service**는 PC 앱 제거 후에도 남습니다. 필요 없다면 기기의 앱 설정에서 제거하세요. 패키지 ID는 `com.groundview.service`입니다.

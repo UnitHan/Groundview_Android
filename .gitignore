@@ -27,7 +27,6 @@ resources/adb/
 
 # User data
 user-data/
-!user-data/settings.json
 
 # IDE
 .vscode/
@@ -65,6 +64,8 @@ backend/models/paddleocr/
 # Temporary files
 *.tmp
 *.temp
+*.backup
+backend/shot.png
 
 # macOS build copy (local only)
 macos-build/
@@ -88,3 +89,4 @@ groundview-service/app/build/
 groundview-service/.gradle/
 groundview-service/.idea/
 groundview-service/build/
+groundview-service/local.properties

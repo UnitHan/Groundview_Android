@@ -1,5 +1,7 @@
 # iOS GroundView - Cross-Platform Code
 
+> **기록 안내 (2026-11-09):** 이 디렉터리는 iOS 이식용 코드와 참고 자료입니다. 아래 설명은 이식 당시 기준이며, 현재 데스크톱 앱은 루트 `backend/`와 `app/services/wdaService.js`를 사용합니다. 완전 지원·실기기 검증 상태는 [프로젝트 상태](../docs/STATUS.md)를 참고하세요.
+
 macOS/iOS 버전용 크로스 플랫폼 코드입니다.
 
 ## 📁 구조

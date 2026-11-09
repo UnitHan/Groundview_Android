@@ -155,6 +155,8 @@
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "format": "prettier -w .",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm run build",
     "test:ui": "vitest --ui"
   },
   "dependencies": {
